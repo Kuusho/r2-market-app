@@ -1,0 +1,142 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@900&family=Share+Tech+Mono&family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 260 60% 8%;
+    --foreground: 180 100% 50%;
+
+    --card: 260 50% 6%;
+    --card-foreground: 180 100% 50%;
+
+    --popover: 260 50% 6%;
+    --popover-foreground: 180 100% 50%;
+
+    --primary: 330 100% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 65 100% 50%;
+    --secondary-foreground: 0 0% 0%;
+
+    --muted: 260 30% 15%;
+    --muted-foreground: 180 20% 40%;
+
+    --accent: 180 100% 50%;
+    --accent-foreground: 260 60% 8%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 180 100% 50%;
+    --input: 260 30% 20%;
+    --ring: 330 100% 50%;
+
+    --radius: 0px;
+
+    /* Custom R2 tokens */
+    --neon-pink: 330 100% 50%;
+    --neon-cyan: 180 100% 50%;
+    --neon-yellow: 65 100% 50%;
+    --neon-green: 120 100% 40%;
+    --neon-magenta: 300 100% 50%;
+    --dark-surface: 260 50% 4%;
+    --dark-overlay: 260 40% 10%;
+
+    --glow-pink: 0 0 20px hsl(330 100% 50% / 0.6), 0 0 40px hsl(330 100% 50% / 0.3);
+    --glow-cyan: 0 0 20px hsl(180 100% 50% / 0.6), 0 0 40px hsl(180 100% 50% / 0.3);
+    --glow-yellow: 0 0 20px hsl(65 100% 50% / 0.6), 0 0 40px hsl(65 100% 50% / 0.3);
+
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-display: 'Orbitron', sans-serif;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-mono);
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono-r2 {
+    font-family: var(--font-mono);
+  }
+
+  .text-neon-pink {
+    color: hsl(var(--neon-pink));
+  }
+
+  .text-neon-cyan {
+    color: hsl(var(--neon-cyan));
+  }
+
+  .text-neon-yellow {
+    color: hsl(var(--neon-yellow));
+  }
+
+  .text-neon-green {
+    color: hsl(var(--neon-green));
+  }
+
+  .bg-dark-surface {
+    background-color: hsl(var(--dark-surface));
+  }
+
+  .bg-dark-overlay {
+    background-color: hsl(var(--dark-overlay));
+  }
+
+  .border-neon-pink {
+    border-color: hsl(var(--neon-pink));
+  }
+
+  .border-neon-cyan {
+    border-color: hsl(var(--neon-cyan));
+  }
+
+  .border-neon-yellow {
+    border-color: hsl(var(--neon-yellow));
+  }
+
+  .glow-pink {
+    box-shadow: var(--glow-pink);
+  }
+
+  .glow-cyan {
+    box-shadow: var(--glow-cyan);
+  }
+
+  .glow-yellow {
+    box-shadow: var(--glow-yellow);
+  }
+
+  .gradient-rainbow {
+    background: linear-gradient(90deg, 
+      hsl(var(--neon-pink)), 
+      hsl(var(--neon-magenta)), 
+      hsl(240 100% 60%), 
+      hsl(var(--neon-cyan)), 
+      hsl(var(--neon-green)), 
+      hsl(var(--neon-yellow))
+    );
+  }
+
+  .watermark-text {
+    color: hsl(260 40% 15%);
+    font-family: var(--font-mono);
+    user-select: none;
+    pointer-events: none;
+  }
+}

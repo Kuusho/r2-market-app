@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
   })
 
   return Response.redirect(
-    `https://twitter.com/i/oauth2/authorize?${params}`,
+    `https://x.com/i/oauth2/authorize?${params}`,
     302
   )
 })

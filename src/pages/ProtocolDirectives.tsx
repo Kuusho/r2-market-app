@@ -34,7 +34,8 @@ const ProtocolDirectives = () => {
     (discordLinked ? 1 : 0)
 
   const card2Unlocked = isConnected && twitterLinked
-  const card3Unlocked = card2Unlocked && referralCount >= 3
+  // TODO: restore referral gate for prod: card2Unlocked && referralCount >= 3
+  const card3Unlocked = card2Unlocked // temp: skip referral check for testing
   const waitlistComplete = card3Unlocked && discordLinked
 
   const registerWallet = useCallback(async (addr: string) => {

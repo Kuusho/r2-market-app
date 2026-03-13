@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     response_type:         'code',
     client_id:             TWITTER_CLIENT_ID,
     redirect_uri:          CALLBACK_URL,
-    scope:                 'tweet.read users.read',
+    scope:                 'tweet.read users.read follows.read',
     state:                 wallet.toLowerCase(),
     code_challenge:        challenge,
     code_challenge_method: 'S256',

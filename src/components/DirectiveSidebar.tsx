@@ -33,14 +33,14 @@ const DirectiveSidebar = ({ completedCount, totalCount }: DirectiveSidebarProps)
       </div>
 
       <div className="mt-auto space-y-2 pt-4 border-t border-muted-foreground/10">
-        <p className="text-[9px] text-muted-foreground tracking-[0.15em] mb-2">DIRECTIVE_STATUS</p>
+        <p className="text-[9px] text-muted-foreground tracking-[0.15em] mb-2">OBJECTIVE_STATUS</p>
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 bg-neon-yellow" />
           <span className="text-neon-yellow text-[10px] font-bold tracking-wider">COM_LINK</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 bg-neon-pink" />
-          <span className="text-neon-pink text-[10px] font-bold tracking-wider">RECRUITMENT</span>
+          <div className="w-2.5 h-2.5 border border-neon-pink" />
+          <span className="text-neon-pink text-[10px] tracking-wider">RECRUITMENT</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 border border-neon-cyan" />

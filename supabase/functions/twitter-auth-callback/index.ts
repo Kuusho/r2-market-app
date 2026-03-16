@@ -7,7 +7,7 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
 const APP_URL = Deno.env.get('APP_URL') || 'http://localhost:8080'
 
 const CALLBACK_URL = `${SUPABASE_URL}/functions/v1/twitter-auth-callback`
-const BASIC_AUTH = btoa(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`)
+const BASIC_AUTH = btoa(`${encodeURIComponent(TWITTER_CLIENT_ID)}:${encodeURIComponent(TWITTER_CLIENT_SECRET)}`)
 
 const FOLLOW_TARGETS = ['r2markets', 'korewapandesu']
 
@@ -101,18 +101,18 @@ Deno.serve(async (req) => {
   // Clean up session
   await supabase.from('oauth_sessions').delete().eq('wallet_address', wallet.toLowerCase())
 
-  // Exchange code for user access token
+  // Exchange code for user access token (public client / PKCE)
+  // Twitter rejects any Authorization header for public client apps —
+  // client_id goes in the body, no secret.
   const tokenRes = await fetch('https://api.twitter.com/2/oauth2/token', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Basic ${BASIC_AUTH}`,
-    },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
       grant_type: 'authorization_code',
       redirect_uri: CALLBACK_URL,
       code_verifier: session.verifier,
+      client_id: TWITTER_CLIENT_ID,
     }),
   })
 

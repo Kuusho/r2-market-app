@@ -1,0 +1,16 @@
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOjE2ODYzLCJ0eXBlIjoiY3VzdG9keSIsImtleSI6IjB4NjJGNUNFZTdBRTlhOTlBNjM3ZTg0M0Q5MjEzN2Q1ODRmMkE4MTA4MSJ9",
+    "payload": "eyJkb21haW4iOiJyMi5tYXJrZXRzIn0",
+    "signature": "hCj5diOxNJ570kD1oaSYOdggsTzNHdpW+2C7JZxC/Fg7m8pSqOBWUfTxfZBF8ShHdZfbhKO7xbyTt+O26bsqUxw="
+  },
+  "frame": {
+    "version": "1",
+    "name": "R2 Markets",
+    "iconUrl": "https://r2.markets/assets/smiling.png",
+    "homeUrl": "https://r2.markets",
+    "splashImageUrl": "https://r2.markets/assets/loading-state.png",
+    "splashBackgroundColor": "#000000",
+    "webhookUrl": "https://r2.markets/api/webhook"
+  }
+}

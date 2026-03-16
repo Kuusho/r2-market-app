@@ -18,11 +18,11 @@ const borderMap = {
 
 const DirectiveCard = ({ number, title, description, borderColor, children, locked }: DirectiveCardProps) => {
   return (
-    <div className={`relative border-2 ${borderMap[borderColor]} bg-dark-surface p-6 ${locked ? "opacity-50" : ""}`}>
-      <h3 className="font-display font-bold text-xl md:text-2xl text-neon-yellow mb-2 uppercase">
+    <div className={`relative border-2 ${borderMap[borderColor]} bg-dark-surface p-4 ${locked ? "opacity-50" : ""}`}>
+      <h3 className="font-display font-bold text-base text-neon-yellow mb-1 uppercase">
         [{number}] {title}
       </h3>
-      <p className="text-muted-foreground text-[10px] tracking-[0.15em] uppercase mb-4">
+      <p className="text-muted-foreground text-[9px] tracking-[0.15em] uppercase mb-3">
         {description}
       </p>
       <div>{children}</div>

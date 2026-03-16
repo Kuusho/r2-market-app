@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
 import { useConnect } from "wagmi";
 import { injected } from "wagmi/connectors";
-import FlowNav from "@/components/FlowNav";
 import PageHeader from "@/components/PageHeader";
 import TerminalButton from "@/components/TerminalButton";
 import { supabase } from "@/lib/supabase";
@@ -312,7 +311,6 @@ const AgentProfile = () => {
         </div>
       </div>
 
-      <FlowNav />
     </div>
   );
 };

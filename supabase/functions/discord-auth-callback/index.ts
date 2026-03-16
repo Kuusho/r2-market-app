@@ -68,7 +68,5 @@ Deno.serve(async (req) => {
     return redirect('/directives?discord=error')
   }
 
-  return redirect(
-    `/directives?discord=ok&dc_user=${encodeURIComponent(displayName)}`
-  )
+  return redirect(`/discord-success`)
 })

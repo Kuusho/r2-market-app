@@ -8,7 +8,7 @@ interface SocialAuthButtonProps {
   disabled?: boolean
   loading?: boolean
   loadingLabel?: string
-  accentColor?: "pink" | "cyan" | "indigo"
+  accentColor?: "pink" | "cyan" | "indigo" | "purple"
 }
 
 const accentMap = {
@@ -32,6 +32,13 @@ const accentMap = {
     glow:      "hover:shadow-[0_0_18px_rgba(88,101,242,0.25)]",
     bg:        "hover:bg-[#5865F2]/5",
     indicator: "bg-[#5865F2]",
+  },
+  purple: {
+    border:    "border-[#8B5CF6]/50 hover:border-[#8B5CF6]",
+    text:      "text-[#8B5CF6]",
+    glow:      "hover:shadow-[0_0_18px_rgba(139,92,246,0.25)]",
+    bg:        "hover:bg-[#8B5CF6]/5",
+    indicator: "bg-[#8B5CF6]",
   },
 }
 
@@ -64,7 +71,7 @@ const SocialAuthButton = ({
       <span
         className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out"
         style={{
-          background: `linear-gradient(90deg, transparent 0%, hsl(var(--${accentColor === "indigo" ? "neon-cyan" : `neon-${accentColor}`}) / 0.08) 50%, transparent 100%)`,
+          background: `linear-gradient(90deg, transparent 0%, hsl(var(--${accentColor === "indigo" || accentColor === "purple" ? "neon-cyan" : `neon-${accentColor}`}) / 0.08) 50%, transparent 100%)`,
         }}
       />
 

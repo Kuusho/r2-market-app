@@ -31,3 +31,9 @@ CREATE TABLE IF NOT EXISTS public.referrals (
 
 -- Note: Enable Row Level Security (RLS) if required for production,
 -- but the Edge Functions use the SERVICE_ROLE_KEY to bypass RLS.
+
+-- Migration: Farcaster Mini App columns
+-- farcaster_fid is bigint (FIDs are large integers) with UNIQUE constraint
+ALTER TABLE public.users
+  ADD COLUMN IF NOT EXISTS farcaster_fid      bigint UNIQUE,
+  ADD COLUMN IF NOT EXISTS farcaster_username  text;

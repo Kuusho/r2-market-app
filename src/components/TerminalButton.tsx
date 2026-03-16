@@ -17,7 +17,7 @@ const TerminalButton = ({ label, variant = "outline", onClick, disabled }: Termi
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`px-4 py-2 border text-[11px] tracking-[0.15em] uppercase font-mono transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${variantClasses[variant]}`}
+      className={`px-5 py-3 border text-[11px] tracking-[0.15em] uppercase font-mono transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${variantClasses[variant]}`}
     >
       [ {label} ]
     </button>

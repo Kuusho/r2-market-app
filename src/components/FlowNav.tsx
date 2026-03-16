@@ -1,70 +1,83 @@
 import { useNavigate, useLocation } from "react-router-dom";
 
 const steps = [
-  { num: "#1", label: "SPLASH",   path: "/" },
-  { num: "#2", label: "WAITLIST", path: "/directives" },
-  { num: "#3", label: "PROFILE",  path: "/profile" },
-  { num: "#4", label: "DATABANK", path: "/databank" },
+  { num: "01", label: "SPLASH",   path: "/" },
+  { num: "02", label: "WAITLIST", path: "/directives" },
+  { num: "03", label: "PROFILE",  path: "/profile" },
+  { num: "04", label: "DATABANK", path: "/databank" },
 ];
 
-const FlowNav = () => {
+interface FlowNavProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+const FlowNav = ({ open, onClose }: FlowNavProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const currentIndex = steps.findIndex((s) => s.path === location.pathname);
 
-  const handlePrev = () => {
-    if (currentIndex > 0) navigate(steps[currentIndex - 1].path);
-  };
-
-  const handleNext = () => {
-    if (currentIndex < steps.length - 1) navigate(steps[currentIndex + 1].path);
+  const go = (path: string) => {
+    navigate(path);
+    onClose();
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50">
-      <div className="h-[2px] bg-neon-pink w-full" />
-      <div className="bg-background/95 backdrop-blur-sm flex items-center h-10">
-        <button
-          onClick={handlePrev}
-          disabled={currentIndex <= 0}
-          className="px-4 text-[10px] tracking-[0.15em] text-neon-cyan font-mono-r2 hover:text-foreground disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
-        >
-          ◀ PREV
-        </button>
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${
+          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+      />
 
-        <div className="flex-1 flex items-center justify-center">
-          {steps.map((step, i) => {
-            const isActive = i === currentIndex;
+      {/* Drawer */}
+      <aside
+        className={`fixed top-0 right-0 h-full w-[180px] z-50 bg-background border-l border-neon-pink/30 flex flex-col transition-transform duration-300 ease-in-out ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between px-4 py-4 border-b border-muted-foreground/10">
+          <span className="font-mono text-[9px] tracking-[0.2em] text-neon-pink uppercase">Flow Map</span>
+          <button
+            onClick={onClose}
+            className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors leading-none"
+          >
+            ✕
+          </button>
+        </div>
+
+        <nav className="flex flex-col flex-1 py-2">
+          {steps.map((step) => {
+            const isActive = location.pathname === step.path;
             return (
               <button
                 key={step.path}
-                onClick={() => navigate(step.path)}
-                className={`flex-1 text-center py-2 cursor-pointer transition-all duration-200 ${
+                onClick={() => go(step.path)}
+                className={`flex items-center gap-3 px-4 py-4 text-left transition-all duration-150 border-l-2 ${
                   isActive
-                    ? "bg-neon-pink/20 border-t-2 border-neon-pink"
-                    : "hover:bg-muted/20"
+                    ? "border-neon-pink bg-neon-pink/5 text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground/80"
                 }`}
               >
-                <span className={`block text-[8px] tracking-[0.1em] ${isActive ? "text-neon-pink" : "text-muted-foreground/60"}`}>
-                  {step.num}
+                <span className="font-mono text-[9px] tracking-[0.1em] text-neon-pink/50">
+                  #{step.num}
                 </span>
-                <span className={`block text-[9px] tracking-[0.12em] font-bold ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
+                <span className="font-mono text-[11px] tracking-[0.12em] uppercase font-bold">
                   {step.label}
                 </span>
               </button>
             );
           })}
-        </div>
+        </nav>
 
-        <button
-          onClick={handleNext}
-          disabled={currentIndex >= steps.length - 1}
-          className="px-4 text-[10px] tracking-[0.15em] text-neon-pink font-mono-r2 hover:text-foreground disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
-        >
-          NEXT ▶
-        </button>
-      </div>
-    </div>
+        <div className="px-4 py-4 border-t border-muted-foreground/10">
+          <p className="font-mono text-[8px] tracking-[0.15em] text-muted-foreground/40 uppercase">
+            R2-OS // PHASE_1
+          </p>
+        </div>
+      </aside>
+    </>
   );
 };
 

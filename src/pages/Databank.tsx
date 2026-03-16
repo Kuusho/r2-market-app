@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import FlowNav from "@/components/FlowNav";
 import PageHeader from "@/components/PageHeader";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { supabase } from "@/lib/supabase";
@@ -284,7 +283,6 @@ const Databank = () => {
         </SheetContent>
       </Sheet>
 
-      <FlowNav />
     </div>
   )
 }

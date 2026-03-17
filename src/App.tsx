@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-
 import { WagmiProvider } from "wagmi";
 import { wagmiConfig } from "@/lib/wagmi";
 import { AuthKitProvider } from "@farcaster/auth-kit";
+import { ConvexProvider } from "convex/react";
+import { convex } from "@/lib/convex";
 import GridAccess from "./pages/GridAccess";
 import ProtocolDirectives from "./pages/ProtocolDirectives";
 import AgentProfile from "./pages/AgentProfile";
@@ -29,27 +31,29 @@ const farcasterConfig = {
 }
 
 const App = () => (
-  <WagmiProvider config={wagmiConfig}>
-    <QueryClientProvider client={queryClient}>
-      <AuthKitProvider config={farcasterConfig}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<GridAccess />} />
-            <Route path="/ref/:code" element={<RefRedirect />} />
-            <Route path="/directives" element={<ProtocolDirectives />} />
-            <Route path="/profile" element={<AgentProfile />} />
-            <Route path="/databank" element={<Databank />} />
-            <Route path="/discord-success" element={<DiscordSuccess />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-      </AuthKitProvider>
-    </QueryClientProvider>
-  </WagmiProvider>
+  <ConvexProvider client={convex}>
+    <WagmiProvider config={wagmiConfig}>
+      <QueryClientProvider client={queryClient}>
+        <AuthKitProvider config={farcasterConfig}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<GridAccess />} />
+              <Route path="/ref/:code" element={<RefRedirect />} />
+              <Route path="/directives" element={<ProtocolDirectives />} />
+              <Route path="/profile" element={<AgentProfile />} />
+              <Route path="/databank" element={<Databank />} />
+              <Route path="/discord-success" element={<DiscordSuccess />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+        </AuthKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  </ConvexProvider>
 );
 
 export default App;

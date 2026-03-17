@@ -2,14 +2,16 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSignIn } from "@farcaster/auth-kit";
 import { sdk } from "@farcaster/miniapp-sdk";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import DirectiveSidebar from "@/components/DirectiveSidebar";
 import DirectiveCard from "@/components/DirectiveCard";
 import TerminalButton from "@/components/TerminalButton";
 import SocialAuthButton from "@/components/SocialAuthButton";
 import FlowNav from "@/components/FlowNav";
-import { supabase } from "@/lib/supabase";
 
 const IS_STUB = import.meta.env.VITE_AUTH_STUB === 'true'
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://r2.markets'
 
 const FarcasterIcon = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 1000 1000" fill="currentColor">
@@ -59,6 +61,29 @@ const ProtocolDirectives = () => {
   const [initLoading, setInitLoading] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
 
+  // Convex: reactive user query (auto-updates when Discord links, etc.)
+  const convexUser = useQuery(
+    api.users.getByWallet,
+    walletAddress ? { wallet_address: walletAddress.toLowerCase() } : 'skip'
+  )
+  const updateStatus = useMutation(api.users.updateStatus)
+
+  // Sync Convex user data to local state
+  useEffect(() => {
+    if (!convexUser) return
+    if (convexUser.farcaster_username) {
+      setFarcasterLinked(true)
+      setFarcasterUsername(convexUser.farcaster_username)
+    }
+    if (convexUser.discord_username) {
+      setDiscordLinked(true)
+      setDiscordUsername(convexUser.discord_username)
+      setDiscordPending(false)
+      setReferralAcknowledged(true)
+    }
+    if (convexUser.status === 'queued') setQueueSlot(1)
+  }, [convexUser])
+
   // Progressive step derivation
   const step1Done = farcasterLinked
   const step2Done = step1Done && referralAcknowledged
@@ -77,55 +102,16 @@ const ProtocolDirectives = () => {
     ? `${window.location.origin}/ref/${farcasterUsername}`
     : null
 
-  // Hydrate from DB after wallet is known
-  const hydrateUser = useCallback(async (wallet: string) => {
-    const { data: user } = await supabase
-      .from('users')
-      .select('status, farcaster_username, discord_username')
-      .eq('wallet_address', wallet.toLowerCase())
-      .single()
-    if (user?.farcaster_username) {
-      setFarcasterLinked(true)
-      setFarcasterUsername(user.farcaster_username)
-    }
-    if (user?.discord_username) {
-      setDiscordLinked(true)
-      setDiscordUsername(user.discord_username)
-      setReferralAcknowledged(true)
-    }
-    if (user?.status === 'queued') setQueueSlot(1)
-  }, [])
-
-  // On mount: try to detect Farcaster context and pre-load wallet
+  // On mount: try to detect Farcaster context
   useEffect(() => {
     sdk.context.then(ctx => {
       if (ctx?.user?.fid) {
-        // Inside Warpcast — try to find existing user by attempting Quick Auth silently
-        // (actual auth still requires button tap; this just surfaces context)
         console.log('Farcaster context detected, FID:', ctx.user.fid)
       }
     }).catch(() => {})
   }, [])
 
-  // Poll Supabase for Discord completion when user has gone to external browser to auth
-  useEffect(() => {
-    if (!discordPending || discordLinked || !walletAddress) return
-    const interval = setInterval(async () => {
-      const { data } = await supabase
-        .from('users')
-        .select('discord_username')
-        .eq('wallet_address', walletAddress.toLowerCase())
-        .single()
-      if (data?.discord_username) {
-        setDiscordLinked(true)
-        setDiscordUsername(data.discord_username)
-        setDiscordPending(false)
-      }
-    }, 2500)
-    return () => clearInterval(interval)
-  }, [discordPending, discordLinked, walletAddress])
-
-  const verifyWithEdgeFunction = useCallback(async (payload: {
+  const verifyWithApi = useCallback(async (payload: {
     type: 'quickauth' | 'siwf'
     token?: string
     fid?: number
@@ -134,26 +120,18 @@ const ProtocolDirectives = () => {
     setFarcasterError(null)
     const referralCode = localStorage.getItem('r2_referral_code') ?? undefined
     try {
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/farcaster-auth-verify`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ ...payload, referralCode }),
-        }
-      )
+      const res = await fetch(`${API_BASE}/api/auth/farcaster`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, referralCode }),
+      })
       const result = await res.json()
       if (result.ok) {
         setFarcasterLinked(true)
         setFarcasterUsername(result.username)
         setWalletAddress(result.wallet)
-        hydrateUser(result.wallet)
       } else if (result.unverified) {
         setFarcasterError('unverified')
-        // Still set wallet so we can show the profile if needed
         if (result.wallet) setWalletAddress(result.wallet)
       } else {
         setFarcasterError('error')
@@ -164,7 +142,7 @@ const ProtocolDirectives = () => {
     } finally {
       setFarcasterLoading(false)
     }
-  }, [hydrateUser])
+  }, [])
 
   const handleFarcasterClick = async () => {
     if (IS_STUB) {
@@ -181,7 +159,7 @@ const ProtocolDirectives = () => {
       const context = await sdk.context
       if (context?.user?.fid) {
         const { token } = await sdk.quickAuth.getToken()
-        await verifyWithEdgeFunction({ type: 'quickauth', token })
+        await verifyWithApi({ type: 'quickauth', token })
         return
       }
     } catch {
@@ -194,9 +172,9 @@ const ProtocolDirectives = () => {
 
   useEffect(() => {
     if (siwfSuccess && siwfData) {
-      verifyWithEdgeFunction({ type: 'siwf', fid: siwfData.fid })
+      verifyWithApi({ type: 'siwf', fid: siwfData.fid })
     }
-  }, [siwfSuccess, siwfData, verifyWithEdgeFunction])
+  }, [siwfSuccess, siwfData, verifyWithApi])
 
   useEffect(() => {
     if (siwfIsError) {
@@ -208,12 +186,11 @@ const ProtocolDirectives = () => {
   const handleDiscord = async () => {
     if (IS_STUB) { setDiscordLinked(true); return }
     if (!walletAddress) return
-    const discordUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discord-auth-start?wallet=${walletAddress}`
+    const discordUrl = `${API_BASE}/api/auth/discord?wallet=${walletAddress}`
     setDiscordPending(true)
     try {
       await sdk.actions.openUrl(discordUrl)
     } catch {
-      // Outside Warpcast — open in same tab as fallback
       window.open(discordUrl, '_blank')
     }
   }
@@ -222,13 +199,9 @@ const ProtocolDirectives = () => {
     if (!walletAddress || !waitlistComplete) return
     setInitLoading(true)
     try {
-      const { error } = await supabase.from('users')
-        .update({ status: 'queued' })
-        .eq('wallet_address', walletAddress.toLowerCase())
-      if (!error) {
-        setQueueSlot(1)
-        setTimeout(() => navigate('/profile'), 800)
-      }
+      await updateStatus({ wallet_address: walletAddress, status: 'queued' })
+      setQueueSlot(1)
+      setTimeout(() => navigate('/profile'), 800)
     } catch (e) {
       console.error('claim spot:', e)
     }

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import PageHeader from "@/components/PageHeader";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { supabase } from "@/lib/supabase";
 
 // ─── Full article content ───────────────────────────────────────────────────
 
@@ -96,17 +97,9 @@ const GLOBE_LINES = [
 
 const Databank = () => {
   const navigate = useNavigate()
-  const [totalUsers, setTotalUsers] = useState<number | null>(null)
-  const [lastSync, setLastSync] = useState(0)
+  const totalUsers = useQuery(api.users.countAll) ?? null
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const [openArticle, setOpenArticle] = useState<typeof ARTICLES[0] | null>(null)
-
-  useEffect(() => {
-    supabase.from('users').select('*', { count: 'exact', head: true })
-      .then(({ count }) => setTotalUsers(count ?? 0))
-    const interval = setInterval(() => setLastSync(s => s + 1), 1000)
-    return () => clearInterval(interval)
-  }, [])
 
   const handleNodeClick = (type: string) => {
     if (type === 'profile') { navigate('/profile'); return }
@@ -217,7 +210,7 @@ const Databank = () => {
 
             <div className="mt-3 flex gap-6 text-[9px] font-mono-r2 tracking-wider">
               <span className="text-muted-foreground">ENTRIES: <span className="text-neon-cyan">{totalUsers ?? '—'}</span></span>
-              <span className="text-muted-foreground">LAST SYNC: <span className="text-neon-green">{lastSync}s AGO</span></span>
+              <span className="text-muted-foreground">SYNC: <span className="text-neon-green">LIVE</span></span>
             </div>
           </div>
         </div>

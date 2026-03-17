@@ -1,99 +1,57 @@
 import { useState, useEffect } from "react";
-import { useAccount } from "wagmi";
-import { useConnect } from "wagmi";
+import { useAccount, useConnect } from "wagmi";
 import { injected } from "wagmi/connectors";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import PageHeader from "@/components/PageHeader";
 import TerminalButton from "@/components/TerminalButton";
-import { supabase } from "@/lib/supabase";
 import { generateReferralCode } from "@/lib/referral";
 
 const ARCHETYPES = [
-  {
-    key: 'SNIPER',
-    label: 'SNIPER',
-    sub: 'Precision entry. Targets undervalued agents at discovery.',
-    color: 'neon-pink',
-  },
-  {
-    key: 'ARBITRAGEUR',
-    label: 'ARBITRAGEUR',
-    sub: 'Cross-market spread hunter. Exploits price inefficiencies.',
-    color: 'neon-cyan',
-  },
-  {
-    key: 'ACCUMULATOR',
-    label: 'ACCUMULATOR',
-    sub: 'Long-position strategist. Builds conviction positions over time.',
-    color: 'neon-yellow',
-  },
-  {
-    key: 'MARKET_MAKER',
-    label: 'MARKET_MAKER',
-    sub: 'Liquidity provider. Runs bid/ask spreads on active pairs.',
-    color: 'neon-green',
-  },
-  {
-    key: 'CURATOR',
-    label: 'CURATOR',
-    sub: 'Intelligence operator. Specialises in agent discovery and ranking.',
-    color: 'foreground',
-  },
-  {
-    key: 'SCOUT',
-    label: 'SCOUT',
-    sub: 'Early detection unit. Finds emerging agents before price discovery.',
-    color: 'muted-foreground',
-  },
+  { key: 'SNIPER', label: 'SNIPER', sub: 'Precision entry. Targets undervalued agents at discovery.', color: 'neon-pink' },
+  { key: 'ARBITRAGEUR', label: 'ARBITRAGEUR', sub: 'Cross-market spread hunter. Exploits price inefficiencies.', color: 'neon-cyan' },
+  { key: 'ACCUMULATOR', label: 'ACCUMULATOR', sub: 'Long-position strategist. Builds conviction positions over time.', color: 'neon-yellow' },
+  { key: 'MARKET_MAKER', label: 'MARKET_MAKER', sub: 'Liquidity provider. Runs bid/ask spreads on active pairs.', color: 'neon-green' },
+  { key: 'CURATOR', label: 'CURATOR', sub: 'Intelligence operator. Specialises in agent discovery and ranking.', color: 'foreground' },
+  { key: 'SCOUT', label: 'SCOUT', sub: 'Early detection unit. Finds emerging agents before price discovery.', color: 'muted-foreground' },
 ] as const
 
 type Archetype = typeof ARCHETYPES[number]['key']
 
-type UserRow = {
-  wallet_address: string
-  status: string
-  twitter_username?: string
-  discord_username?: string
-  display_name?: string
-  archetype?: string
-  referral_code?: string
-  created_at: string
-}
-
 const AgentProfile = () => {
   const { address, isConnected } = useAccount()
   const { connect } = useConnect()
-  const [user, setUser] = useState<UserRow | null>(null)
   const [handle, setHandle] = useState('')
   const [archetype, setArchetype] = useState<Archetype | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  // Convex reactive query
+  const user = useQuery(
+    api.users.getByWallet,
+    address ? { wallet_address: address.toLowerCase() } : 'skip'
+  )
+  const updateProfile = useMutation(api.users.updateProfile)
+
+  // Sync Convex data to local state
   useEffect(() => {
-    if (!address) return
-    supabase
-      .from('users')
-      .select('*')
-      .eq('wallet_address', address.toLowerCase())
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          setUser(data as UserRow)
-          setHandle(data.display_name || `CTR-${address.slice(-4).toUpperCase()}`)
-          if (data.archetype) setArchetype(data.archetype as Archetype)
-        } else {
-          setHandle(`CTR-${address.slice(-4).toUpperCase()}`)
-        }
-      })
-  }, [address])
+    if (!user) {
+      if (address) setHandle(`CTR-${address.slice(-4).toUpperCase()}`)
+      return
+    }
+    setHandle(user.display_name || `CTR-${address?.slice(-4).toUpperCase() ?? '????'}`)
+    if (user.archetype) setArchetype(user.archetype as Archetype)
+  }, [user, address])
 
   const handleSave = async () => {
     if (!address) return
     setSaving(true)
     setSaved(false)
-    await supabase
-      .from('users')
-      .update({ display_name: handle, archetype: archetype ?? undefined })
-      .eq('wallet_address', address.toLowerCase())
+    await updateProfile({
+      wallet_address: address,
+      display_name: handle,
+      archetype: archetype ?? undefined,
+    })
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
@@ -103,24 +61,17 @@ const AgentProfile = () => {
     ? `${address.slice(0, 6)}...${address.slice(-4)}`
     : '0x????????????????'
 
-  const issuedDate = user
-    ? new Date(user.created_at).toISOString().slice(0, 10).replace(/-/g, '.')
+  const issuedDate = user?._creationTime
+    ? new Date(user._creationTime).toISOString().slice(0, 10).replace(/-/g, '.')
     : '——'
 
   const selectedArchetype = ARCHETYPES.find(a => a.key === archetype)
 
   return (
     <div className="relative min-h-screen bg-background overflow-hidden pb-20">
-      {/* Background watermark */}
       <div
         className="absolute inset-0 flex flex-col items-center justify-center select-none pointer-events-none overflow-hidden"
-        style={{
-          fontFamily: "'Noto Sans JP', sans-serif",
-          fontWeight: 900,
-          fontSize: '72px',
-          lineHeight: '84px',
-          color: 'rgba(255,255,255,0.025)',
-        }}
+        style={{ fontFamily: "'Noto Sans JP', sans-serif", fontWeight: 900, fontSize: '72px', lineHeight: '84px', color: 'rgba(255,255,255,0.025)' }}
       >
         <span>コントローラー データ 識別</span>
         <span>ネットワーク ストラテジスト</span>
@@ -159,7 +110,6 @@ const AgentProfile = () => {
             </div>
 
             <div className="p-5 space-y-4">
-              {/* Handle */}
               <div>
                 <p className="text-neon-cyan text-[8px] tracking-[0.2em] uppercase mb-1">CONTROLLER HANDLE</p>
                 <p className="font-display font-bold text-xl text-foreground border-b border-muted-foreground/20 pb-2">
@@ -167,7 +117,6 @@ const AgentProfile = () => {
                 </p>
               </div>
 
-              {/* Archetype badge */}
               <div>
                 <p className="text-muted-foreground text-[8px] tracking-[0.2em] uppercase mb-1">ARCHETYPE</p>
                 {selectedArchetype ? (
@@ -179,7 +128,6 @@ const AgentProfile = () => {
                 )}
               </div>
 
-              {/* Linked accounts */}
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 pt-1">
                 <div>
                   <p className="text-muted-foreground text-[8px] tracking-[0.2em] uppercase mb-1">WALLET</p>
@@ -207,7 +155,6 @@ const AgentProfile = () => {
                 </div>
               </div>
 
-              {/* Referral code */}
               {address && (
                 <div>
                   <p className="text-muted-foreground text-[8px] tracking-[0.2em] uppercase mb-1">REFERRAL CODE</p>
@@ -223,7 +170,6 @@ const AgentProfile = () => {
             </div>
           </div>
 
-          {/* Phase 2 dormant preview */}
           <div className="mt-4 border border-muted-foreground/20 p-4 opacity-40 relative">
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <span className="border border-muted-foreground/40 bg-background px-3 py-1 text-[9px] tracking-[0.2em] text-muted-foreground font-display">PHASE 2</span>
@@ -238,8 +184,6 @@ const AgentProfile = () => {
 
         {/* RIGHT: Edit panel */}
         <div className="flex-1 space-y-8">
-
-          {/* Handle input */}
           <div>
             <h2 className="font-display font-bold text-neon-cyan text-sm tracking-wider mb-4">// CONTROLLER DESIGNATION</h2>
             <p className="text-muted-foreground text-[8px] tracking-[0.2em] uppercase mb-2">HANDLE</p>
@@ -256,7 +200,6 @@ const AgentProfile = () => {
             <p className="text-muted-foreground/40 text-[8px] tracking-wider mt-1">{handle.length}/32 CHARACTERS</p>
           </div>
 
-          {/* Archetype picker */}
           <div>
             <h2 className="font-display font-bold text-neon-cyan text-sm tracking-wider mb-1">// AGENT ARCHETYPE</h2>
             <p className="text-muted-foreground/60 text-[9px] tracking-wider mb-4">
@@ -284,7 +227,6 @@ const AgentProfile = () => {
             </div>
           </div>
 
-          {/* Save */}
           <div className="space-y-2">
             <button
               onClick={handleSave}
@@ -310,7 +252,6 @@ const AgentProfile = () => {
           </p>
         </div>
       </div>
-
     </div>
   );
 };

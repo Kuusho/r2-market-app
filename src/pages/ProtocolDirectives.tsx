@@ -11,6 +11,7 @@ import SocialAuthButton from "@/components/SocialAuthButton";
 import FlowNav from "@/components/FlowNav";
 
 const IS_STUB = import.meta.env.VITE_AUTH_STUB === 'true'
+const CONVEX_SITE_URL = 'https://brainy-panther-780.eu-west-1.convex.site'
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://r2.markets'
 
 const FarcasterIcon = ({ size = 14 }: { size?: number }) => (
@@ -111,28 +112,24 @@ const ProtocolDirectives = () => {
     }).catch(() => {})
   }, [])
 
-  const verifyWithApi = useCallback(async (payload: {
-    type: 'quickauth' | 'siwf'
-    token?: string
-    fid?: number
-  }) => {
+  const verifyWithConvex = useCallback(async (fid: number, username: string, walletAddr: string) => {
     setFarcasterLoading(true)
     setFarcasterError(null)
     const referralCode = localStorage.getItem('r2_referral_code') ?? undefined
     try {
-      const res = await fetch(`${API_BASE}/api/auth/farcaster`, {
+      const res = await fetch(`${CONVEX_SITE_URL}/farcaster-auth`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, referralCode }),
+        body: JSON.stringify({ fid, username, walletAddress: walletAddr, referralCode }),
       })
       const result = await res.json()
       if (result.ok) {
         setFarcasterLinked(true)
-        setFarcasterUsername(result.username)
-        setWalletAddress(result.wallet)
+        setFarcasterUsername(username)
+        setWalletAddress(walletAddr)
       } else if (result.unverified) {
         setFarcasterError('unverified')
-        if (result.wallet) setWalletAddress(result.wallet)
+        setWalletAddress(walletAddr)
       } else {
         setFarcasterError('error')
       }
@@ -158,8 +155,9 @@ const ProtocolDirectives = () => {
     try {
       const context = await sdk.context
       if (context?.user?.fid) {
-        const { token } = await sdk.quickAuth.getToken()
-        await verifyWithApi({ type: 'quickauth', token })
+        const accounts = await sdk.wallet.ethProvider.request({ method: 'eth_requestAccounts' })
+        const walletAddr = (accounts as string[])[0] ?? ''
+        await verifyWithConvex(context.user.fid, context.user.username ?? '', walletAddr)
         return
       }
     } catch {
@@ -171,10 +169,10 @@ const ProtocolDirectives = () => {
   }
 
   useEffect(() => {
-    if (siwfSuccess && siwfData) {
-      verifyWithApi({ type: 'siwf', fid: siwfData.fid })
+    if (siwfSuccess && siwfData?.fid) {
+      verifyWithConvex(siwfData.fid, siwfData.username ?? '', '')
     }
-  }, [siwfSuccess, siwfData, verifyWithApi])
+  }, [siwfSuccess, siwfData, verifyWithConvex])
 
   useEffect(() => {
     if (siwfIsError) {

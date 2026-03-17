@@ -8,7 +8,8 @@ import DirectiveSidebar from "@/components/DirectiveSidebar";
 import DirectiveCard from "@/components/DirectiveCard";
 import TerminalButton from "@/components/TerminalButton";
 import SocialAuthButton from "@/components/SocialAuthButton";
-import FlowNav from "@/components/FlowNav";
+import FlowNav from "@/components/FlowNav"
+import { generateReferralCode } from "@/lib/referral";
 
 const IS_STUB = import.meta.env.VITE_AUTH_STUB === 'true'
 const CONVEX_SITE_URL = 'https://brainy-panther-780.eu-west-1.convex.site'
@@ -110,9 +111,8 @@ const ProtocolDirectives = () => {
   const agentNumber = queueSlot ?? queuedCount
   const spotsLeft = Math.max(0, 500 - agentNumber)
 
-  const referralUrl = farcasterUsername
-    ? `${window.location.origin}/ref/${farcasterUsername}`
-    : null
+  const referralCode = walletAddress ? generateReferralCode(walletAddress) : null
+  const referralUrl = referralCode ? `https://r2.markets/ref/${referralCode}` : null
 
   // On mount: try to detect Farcaster context
   useEffect(() => {

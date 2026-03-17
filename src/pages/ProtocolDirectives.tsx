@@ -56,9 +56,10 @@ const ProtocolDirectives = () => {
   // Downstream state
   const [discordLinked, setDiscordLinked] = useState(false)
   const [discordUsername, setDiscordUsername] = useState<string | null>(null)
-  const [discordPending, setDiscordPending] = useState(false)
+  const [twitterLinked, setTwitterLinked] = useState(false)
   const [referralAcknowledged, setReferralAcknowledged] = useState(false)
   const [queueSlot, setQueueSlot] = useState<number | null>(null)
+  const [shareDone, setShareDone] = useState(false)
   const [initLoading, setInitLoading] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
 
@@ -67,7 +68,10 @@ const ProtocolDirectives = () => {
     api.users.getByWallet,
     walletAddress ? { wallet_address: walletAddress.toLowerCase() } : 'skip'
   )
+  const queuedCount = useQuery(api.users.countByStatus, { statuses: ['queued'] }) ?? 0
   const updateStatus = useMutation(api.users.updateStatus)
+  const updateDiscord = useMutation(api.users.updateDiscord)
+  const updateTwitter = useMutation(api.users.updateTwitter)
 
   // Sync Convex user data to local state
   useEffect(() => {
@@ -79,9 +83,9 @@ const ProtocolDirectives = () => {
     if (convexUser.discord_username) {
       setDiscordLinked(true)
       setDiscordUsername(convexUser.discord_username)
-      setDiscordPending(false)
       setReferralAcknowledged(true)
     }
+    if (convexUser.twitter_username) setTwitterLinked(true)
     if (convexUser.status === 'queued') setQueueSlot(1)
   }, [convexUser])
 
@@ -89,15 +93,22 @@ const ProtocolDirectives = () => {
   const step1Done = farcasterLinked
   const step2Done = step1Done && referralAcknowledged
   const step3Done = discordLinked
-  const step4Done = !!queueSlot
+  const step4Done = twitterLinked
+  const step5Done = !!queueSlot
+  const step6Done = shareDone
 
-  const activeStep = !step1Done ? 1 : !step2Done ? 2 : !step3Done ? 3 : 4
-  const waitlistComplete = step2Done && step3Done
+  const activeStep = !step1Done ? 1 : !step2Done ? 2 : !step3Done ? 3 : !step4Done ? 4 : !step5Done ? 5 : 6
+  const waitlistComplete = step2Done && step3Done && step4Done
 
   const completedCount =
     (step1Done ? 1 : 0) +
     (step3Done ? 1 : 0) +
-    (step4Done ? 1 : 0)
+    (step4Done ? 1 : 0) +
+    (step5Done ? 1 : 0) +
+    (step6Done ? 1 : 0)
+
+  const agentNumber = queueSlot ?? queuedCount
+  const spotsLeft = Math.max(0, 500 - agentNumber)
 
   const referralUrl = farcasterUsername
     ? `${window.location.origin}/ref/${farcasterUsername}`
@@ -183,13 +194,45 @@ const ProtocolDirectives = () => {
 
   const handleDiscord = async () => {
     if (IS_STUB) { setDiscordLinked(true); return }
-    if (!walletAddress) return
-    const discordUrl = `${API_BASE}/api/auth/discord?wallet=${walletAddress}`
-    setDiscordPending(true)
+    const discordInvite = 'https://discord.com/invite/r2-markets'
     try {
-      await sdk.actions.openUrl(discordUrl)
+      await sdk.actions.openUrl(discordInvite)
     } catch {
-      window.open(discordUrl, '_blank')
+      window.open(discordInvite, '_blank')
+    }
+    // Honor system — mark as joined immediately
+    setDiscordLinked(true)
+    if (walletAddress) {
+      updateDiscord({
+        wallet_address: walletAddress,
+        discord_id: 'joined',
+        discord_username: 'joined',
+      }).catch(() => {})
+    }
+  }
+
+  const handleTwitter = async () => {
+    if (IS_STUB) { setTwitterLinked(true); return }
+    try {
+      await sdk.actions.openUrl('https://x.com/r2markets')
+    } catch {
+      window.open('https://x.com/r2markets', '_blank')
+    }
+    setTimeout(async () => {
+      try {
+        await sdk.actions.openUrl('https://x.com/korewapandesu')
+      } catch {
+        window.open('https://x.com/korewapandesu', '_blank')
+      }
+    }, 800)
+    setTwitterLinked(true)
+    if (walletAddress) {
+      updateTwitter({
+        wallet_address: walletAddress,
+        twitter_id: 'joined',
+        twitter_username: 'joined',
+        twitter_following: true,
+      }).catch(() => {})
     }
   }
 
@@ -227,7 +270,7 @@ const ProtocolDirectives = () => {
               <div className="flex flex-col gap-0.5">
                 <h1 className="font-display font-bold text-neon-pink text-sm tracking-wider">PROTOCOL.DIRECTIVES</h1>
                 <span className="font-mono text-[9px] tracking-wider text-muted-foreground uppercase">
-                  {completedCount} / 4 COMPLETE · SLOT #{queueSlot?.toLocaleString() ?? '—'}
+                  {completedCount} / 6 COMPLETE · SLOT #{agentNumber > 0 ? agentNumber : '—'}
                 </span>
               </div>
               <button
@@ -249,6 +292,12 @@ const ProtocolDirectives = () => {
             )}
             {step3Done && activeStep > 3 && (
               <StepDone num="03" label="BASE_CAMP" detail={discordUsername ?? undefined} />
+            )}
+            {step4Done && activeStep > 4 && (
+              <StepDone num="04" label="SIGNAL_BOOST" />
+            )}
+            {step5Done && activeStep > 5 && (
+              <StepDone num="05" label="INITIALIZE" detail={`#${agentNumber}`} />
             )}
           </div>
 
@@ -352,27 +401,18 @@ const ProtocolDirectives = () => {
               >
                 <div className="flex flex-col gap-4 pt-1">
                   {!discordLinked ? (
-                    <div className="flex flex-col gap-3">
-                      <SocialAuthButton
-                        accentColor="indigo"
-                        label={discordPending ? "Waiting for Discord..." : "Join Discord"}
-                        sublabel={discordPending ? "Complete auth in your browser, then return here" : "Connect your Discord account to R2-Markets"}
-                        loading={discordPending}
-                        loadingLabel="Waiting for Discord..."
-                        onClick={discordPending ? undefined : handleDiscord}
-                        icon={<DiscordIcon />}
-                      />
-                      {discordPending && (
-                        <p className="font-mono text-[9px] tracking-widest text-muted-foreground/50 uppercase text-center">
-                          Return to Warpcast after authorising
-                        </p>
-                      )}
-                    </div>
+                    <SocialAuthButton
+                      accentColor="indigo"
+                      label="Join Discord"
+                      sublabel="Join the R2 Markets Discord server to continue"
+                      onClick={handleDiscord}
+                      icon={<DiscordIcon />}
+                    />
                   ) : (
                     <div className="flex items-center gap-2">
                       <DiscordIcon size={12} />
                       <span className="font-mono text-neon-green text-[10px] tracking-wider">
-                        {discordUsername ?? 'Discord'} verified
+                        Discord joined
                       </span>
                     </div>
                   )}
@@ -380,19 +420,56 @@ const ProtocolDirectives = () => {
               </DirectiveCard>
             )}
 
-            {/* [04] INITIALIZE AGENT */}
+            {/* [04] TWITTER / X */}
             {activeStep === 4 && (
               <DirectiveCard
                 number="04"
+                title="SIGNAL_BOOST"
+                description="FOLLOW @R2MARKETS & @KOREWAPANDESU ON X · AMPLIFY THE SIGNAL"
+                borderColor={step4Done ? "yellow" : "cyan"}
+              >
+                <div className="flex flex-col gap-4 pt-1">
+                  {!twitterLinked ? (
+                    <div className="flex flex-col gap-3">
+                      <SocialAuthButton
+                        accentColor="cyan"
+                        label="Follow on X"
+                        sublabel="Follow @r2markets and @korewapandesu to continue"
+                        onClick={handleTwitter}
+                        icon={
+                          <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.742l7.735-8.835L1.254 2.25H8.08l4.259 5.622 5.905-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                          </svg>
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <svg width={12} height={12} viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.742l7.735-8.835L1.254 2.25H8.08l4.259 5.622 5.905-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                      </svg>
+                      <span className="font-mono text-neon-green text-[10px] tracking-wider">
+                        Following on X
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </DirectiveCard>
+            )}
+
+            {/* [05] INITIALIZE AGENT */}
+            {activeStep === 5 && (
+              <DirectiveCard
+                number="05"
                 title="INITIALIZE AGENT"
                 description="DEPLOY ERC-8004 IDENTITY TOKEN · REGISTER TO BASE MAINNET"
-                borderColor={step4Done ? "yellow" : "muted"}
+                borderColor={step5Done ? "yellow" : "muted"}
               >
                 <div className="flex flex-col gap-4 pt-1">
                   {queueSlot ? (
                     <div className="flex flex-col gap-3">
                       <span className="font-mono text-neon-green text-[10px] tracking-wider font-bold">
-                        ✓ SLOT #{queueSlot.toLocaleString()} CONFIRMED
+                        ✓ AGENT #{agentNumber} CONFIRMED
                       </span>
                       <TerminalButton label="VIEW PROFILE" variant="outline" onClick={() => navigate('/profile')} />
                     </div>
@@ -407,12 +484,59 @@ const ProtocolDirectives = () => {
               </DirectiveCard>
             )}
 
+            {/* [06] SHARE */}
+            {activeStep === 6 && (
+              <DirectiveCard
+                number="06"
+                title="BROADCAST"
+                description="CAST YOUR AGENT STATUS · RECRUIT OPERATORS · EXPAND THE GRID"
+                borderColor={step6Done ? "yellow" : "pink"}
+              >
+                <div className="flex flex-col gap-4 pt-1">
+                  {!shareDone ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="border border-neon-pink/20 bg-neon-pink/5 px-3 py-3">
+                        <p className="font-mono text-[9px] text-muted-foreground/70 tracking-wider leading-relaxed">
+                          "I just claimed agent #{agentNumber} on the R2 Markets waitlist, join the agentic JPEGs market now {referralUrl}, {spotsLeft} spots left"
+                        </p>
+                      </div>
+                      <TerminalButton
+                        label="◈ CAST TO FARCASTER"
+                        variant="pink"
+                        onClick={async () => {
+                          const castText = `I just claimed agent #${agentNumber} on the R2 Markets waitlist, join the agentic JPEGs market now ${referralUrl}, ${spotsLeft} spots left`
+                          try {
+                            await sdk.actions.composeCast({ text: castText, embeds: [referralUrl ?? ''] })
+                          } catch {
+                            navigator.clipboard.writeText(castText).catch(() => {})
+                          }
+                          setShareDone(true)
+                        }}
+                      />
+                      <button
+                        onClick={() => setShareDone(true)}
+                        className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground/40 hover:text-muted-foreground/60 uppercase transition-colors py-1"
+                      >
+                        Skip →
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      <span className="font-mono text-neon-green text-[10px] tracking-wider">✓ BROADCAST COMPLETE</span>
+                      <TerminalButton label="VIEW PROFILE" variant="outline" onClick={() => navigate('/profile')} />
+                    </div>
+                  )}
+                </div>
+              </DirectiveCard>
+            )}
+
           </div>
 
           {/* Footer */}
           <div className="px-7 pb-6 flex items-center justify-between text-[9px] text-muted-foreground tracking-wider">
             <span>© 2026 R2-SYSTEMS CORP</span>
-            <span>SLOT #{queueSlot?.toLocaleString() ?? '—'} / 5,000</span>
+            <span>AGENT #{agentNumber > 0 ? agentNumber : '—'} / 500</span>
+
           </div>
         </div>
       </div>

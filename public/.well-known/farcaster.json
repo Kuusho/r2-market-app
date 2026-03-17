@@ -1,16 +1,16 @@
 {
   "accountAssociation": {
     "header": "eyJmaWQiOjE2ODYzLCJ0eXBlIjoiY3VzdG9keSIsImtleSI6IjB4NjJGNUNFZTdBRTlhOTlBNjM3ZTg0M0Q5MjEzN2Q1ODRmMkE4MTA4MSJ9",
-    "payload": "eyJkb21haW4iOiJyMi5tYXJrZXRzIn0",
-    "signature": "hCj5diOxNJ570kD1oaSYOdggsTzNHdpW+2C7JZxC/Fg7m8pSqOBWUfTxfZBF8ShHdZfbhKO7xbyTt+O26bsqUxw="
+    "payload": "eyJkb21haW4iOiJyMi1tYXJrZXQtYXBwLnZlcmNlbC5hcHAifQ",
+    "signature": "ZzkV2HIq9SXPZz9Ar/68CXQ2YkOs1RfUlLg0G97qwItBlTarSelS2f0wo9da9lay9ptQ6j9wSU6LAUxmjKc0fBs="
   },
   "frame": {
     "version": "1",
     "name": "R2 Markets",
-    "iconUrl": "https://r2.markets/assets/smiling.png",
-    "homeUrl": "https://r2.markets",
-    "splashImageUrl": "https://r2.markets/assets/loading-state.png",
+    "iconUrl": "https://r2-market-app.vercel.app/assets/smiling.png",
+    "homeUrl": "https://r2-market-app.vercel.app",
+    "splashImageUrl": "https://r2-market-app.vercel.app/assets/loading-state.png",
     "splashBackgroundColor": "#000000",
-    "webhookUrl": "https://r2.markets/api/webhook"
+    "webhookUrl": "https://r2-market-app.vercel.app/api/webhook"
   }
 }

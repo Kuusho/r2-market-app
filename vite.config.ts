@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => ({
     port: 3000,
     allowedHosts: true,
     hmr: {
-      host: "travelable-ruinously-basilia.ngrok-free.dev",
+      host: "r2-market-app.vercel.app",
       protocol: "wss",
       clientPort: 443,
     },

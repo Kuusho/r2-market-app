@@ -63,6 +63,9 @@ const ProtocolDirectives = () => {
   const [referralAcknowledged, setReferralAcknowledged] = useState(false)
   const [shared, setShared] = useState(false)
   const [queueSlot, setQueueSlot] = useState<number | null>(null)
+  const [hasOnChainVault, setHasOnChainVault] = useState(false)
+  const [vaultCount, setVaultCount] = useState<number | null>(null)
+  const [maxVaults, setMaxVaults] = useState<number | null>(null)
   const [initLoading, setInitLoading] = useState(false)
   const [deployPhase, setDeployPhase] = useState<'idle' | 'wallet' | 'signing' | 'chain' | 'spawn' | 'complete'>('idle')
   const [deployError, setDeployError] = useState<string | null>(null)
@@ -90,15 +93,55 @@ const ProtocolDirectives = () => {
       setDiscordPending(false)
       setReferralAcknowledged(true)
     }
-    if (convexUser.status === 'queued') setQueueSlot(1)
   }, [convexUser])
+
+  // Read on-chain vault stats
+  useEffect(() => {
+    const readChain = async () => {
+      try {
+        const publicClient = createPublicClient({ chain: base, transport: http() })
+        const [nextId, max] = await Promise.all([
+          publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'nextVaultId' }),
+          publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'maxVaults' }),
+        ])
+        setVaultCount(Number(nextId))
+        setMaxVaults(Number(max))
+      } catch (e) {
+        console.error('Chain read failed:', e)
+      }
+    }
+    readChain()
+  }, [])
+
+  // Check on-chain vault ownership
+  useEffect(() => {
+    if (!walletAddress || walletAddress === '0xstub') return
+    const checkVault = async () => {
+      try {
+        const publicClient = createPublicClient({ chain: base, transport: http() })
+        const [hasVault] = await publicClient.readContract({
+          address: R2_VAULT_ADDRESS,
+          abi: R2VaultABI,
+          functionName: 'getUserVault',
+          args: [walletAddress as `0x${string}`],
+        })
+        if (hasVault) {
+          setHasOnChainVault(true)
+          setQueueSlot(1)
+        }
+      } catch (e) {
+        console.error('Vault check failed:', e)
+      }
+    }
+    checkVault()
+  }, [walletAddress])
 
   // Progressive step derivation
   const step1Done = farcasterLinked
   const step2Done = step1Done && referralAcknowledged
   const step3Done = discordLinked
   const step4Done = shared
-  const step5Done = !!queueSlot
+  const step5Done = hasOnChainVault
 
   const activeStep = !step1Done ? 1 : !step2Done ? 2 : !step3Done ? 3 : !step4Done ? 4 : 5
   const waitlistComplete = step2Done && step3Done && step4Done
@@ -327,7 +370,7 @@ const ProtocolDirectives = () => {
               <div className="flex flex-col gap-0.5">
                 <h1 className="font-display font-bold text-neon-pink text-sm tracking-wider">PROTOCOL.DIRECTIVES</h1>
                 <span className="font-mono text-[9px] tracking-wider text-muted-foreground uppercase">
-                  {completedCount} / 5 COMPLETE · SLOT #{queueSlot?.toLocaleString() ?? '—'}
+                  {completedCount} / 5 COMPLETE · AGENTS: {vaultCount?.toLocaleString() ?? '—'} / {maxVaults?.toLocaleString() ?? '—'}
                 </span>
               </div>
               <button
@@ -528,7 +571,7 @@ const ProtocolDirectives = () => {
                 borderColor={step5Done ? "yellow" : "muted"}
               >
                 <div className="flex flex-col gap-4 pt-1">
-                  {(queueSlot && deployPhase === 'idle') || deployPhase === 'complete' ? (
+                  {(hasOnChainVault && deployPhase === 'idle') || deployPhase === 'complete' ? (
                     <div className="flex flex-col gap-4">
                       {/* Deploy success header */}
                       <div className="relative border border-neon-green/30 bg-neon-green/5 px-4 py-3">
@@ -614,7 +657,7 @@ const ProtocolDirectives = () => {
           {/* Footer */}
           <div className="px-7 pb-6 flex items-center justify-between text-[9px] text-muted-foreground tracking-wider">
             <span>© 2026 R2-SYSTEMS CORP</span>
-            <span>SLOT #{queueSlot?.toLocaleString() ?? '—'} / 5,000</span>
+            <span>AGENTS: {vaultCount?.toLocaleString() ?? '—'} / {maxVaults?.toLocaleString() ?? '—'}</span>
           </div>
         </div>
       </div>

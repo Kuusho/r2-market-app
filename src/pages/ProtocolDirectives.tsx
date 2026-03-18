@@ -12,9 +12,11 @@ import DirectiveSidebar from "@/components/DirectiveSidebar";
 import DirectiveCard from "@/components/DirectiveCard";
 import TerminalButton from "@/components/TerminalButton";
 import SocialAuthButton from "@/components/SocialAuthButton";
-import FlowNav from "@/components/FlowNav";
+import FlowNav from "@/components/FlowNav"
+import { generateReferralCode } from "@/lib/referral";
 
 const IS_STUB = import.meta.env.VITE_AUTH_STUB === 'true'
+const CONVEX_SITE_URL = 'https://brainy-panther-780.eu-west-1.convex.site'
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://r2.markets'
 
 const FarcasterIcon = ({ size = 14 }: { size?: number }) => (
@@ -59,10 +61,10 @@ const ProtocolDirectives = () => {
   // Downstream state
   const [discordLinked, setDiscordLinked] = useState(false)
   const [discordUsername, setDiscordUsername] = useState<string | null>(null)
-  const [discordPending, setDiscordPending] = useState(false)
+  const [twitterLinked, setTwitterLinked] = useState(false)
   const [referralAcknowledged, setReferralAcknowledged] = useState(false)
-  const [shared, setShared] = useState(false)
   const [queueSlot, setQueueSlot] = useState<number | null>(null)
+  const [shareDone, setShareDone] = useState(false)
   const [hasOnChainVault, setHasOnChainVault] = useState(false)
   const [vaultCount, setVaultCount] = useState<number | null>(null)
   const [maxVaults, setMaxVaults] = useState<number | null>(null)
@@ -78,7 +80,10 @@ const ProtocolDirectives = () => {
     api.users.getByWallet,
     walletAddress ? { wallet_address: walletAddress.toLowerCase() } : 'skip'
   )
+  const queuedCount = useQuery(api.users.countByStatus, { statuses: ['queued'] }) ?? 0
   const updateStatus = useMutation(api.users.updateStatus)
+  const updateDiscord = useMutation(api.users.updateDiscord)
+  const updateTwitter = useMutation(api.users.updateTwitter)
 
   // Sync Convex user data to local state
   useEffect(() => {
@@ -90,9 +95,9 @@ const ProtocolDirectives = () => {
     if (convexUser.discord_username) {
       setDiscordLinked(true)
       setDiscordUsername(convexUser.discord_username)
-      setDiscordPending(false)
       setReferralAcknowledged(true)
     }
+    if (convexUser.twitter_username) setTwitterLinked(true)
   }, [convexUser])
 
   // Read on-chain vault stats
@@ -140,21 +145,25 @@ const ProtocolDirectives = () => {
   const step1Done = farcasterLinked
   const step2Done = step1Done && referralAcknowledged
   const step3Done = discordLinked
-  const step4Done = shared
+  const step4Done = twitterLinked
   const step5Done = hasOnChainVault
+  const step6Done = shareDone
 
-  const activeStep = !step1Done ? 1 : !step2Done ? 2 : !step3Done ? 3 : !step4Done ? 4 : 5
+  const activeStep = !step1Done ? 1 : !step2Done ? 2 : !step3Done ? 3 : !step4Done ? 4 : !step5Done ? 5 : 6
   const waitlistComplete = step2Done && step3Done && step4Done
 
   const completedCount =
     (step1Done ? 1 : 0) +
     (step3Done ? 1 : 0) +
     (step4Done ? 1 : 0) +
-    (step5Done ? 1 : 0)
+    (step5Done ? 1 : 0) +
+    (step6Done ? 1 : 0)
 
-  const referralUrl = farcasterUsername
-    ? `${window.location.origin}/ref/${farcasterUsername}`
-    : null
+  const agentNumber = queueSlot ?? queuedCount
+  const spotsLeft = Math.max(0, 500 - agentNumber)
+
+  const referralCode = walletAddress ? generateReferralCode(walletAddress) : null
+  const referralUrl = referralCode ? `https://r2.markets/ref/${referralCode}` : null
 
   // On mount: try to detect Farcaster context
   useEffect(() => {
@@ -165,28 +174,24 @@ const ProtocolDirectives = () => {
     }).catch(() => {})
   }, [])
 
-  const verifyWithApi = useCallback(async (payload: {
-    type: 'quickauth' | 'siwf'
-    token?: string
-    fid?: number
-  }) => {
+  const verifyWithConvex = useCallback(async (fid: number, username: string, walletAddr: string) => {
     setFarcasterLoading(true)
     setFarcasterError(null)
     const referralCode = localStorage.getItem('r2_referral_code') ?? undefined
     try {
-      const res = await fetch(`${API_BASE}/api/auth/farcaster`, {
+      const res = await fetch(`${CONVEX_SITE_URL}/farcaster-auth`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, referralCode }),
+        body: JSON.stringify({ fid, username, walletAddress: walletAddr, referralCode }),
       })
       const result = await res.json()
       if (result.ok) {
         setFarcasterLinked(true)
-        setFarcasterUsername(result.username)
-        setWalletAddress(result.wallet)
+        setFarcasterUsername(username)
+        setWalletAddress(walletAddr)
       } else if (result.unverified) {
         setFarcasterError('unverified')
-        if (result.wallet) setWalletAddress(result.wallet)
+        setWalletAddress(walletAddr)
       } else {
         setFarcasterError('error')
       }
@@ -212,8 +217,9 @@ const ProtocolDirectives = () => {
     try {
       const context = await sdk.context
       if (context?.user?.fid) {
-        const { token } = await sdk.quickAuth.getToken()
-        await verifyWithApi({ type: 'quickauth', token })
+        const accounts = await sdk.wallet.ethProvider.request({ method: 'eth_requestAccounts' })
+        const walletAddr = (accounts as string[])[0] ?? ''
+        await verifyWithConvex(context.user.fid, context.user.username ?? '', walletAddr)
         return
       }
     } catch {
@@ -225,10 +231,10 @@ const ProtocolDirectives = () => {
   }
 
   useEffect(() => {
-    if (siwfSuccess && siwfData) {
-      verifyWithApi({ type: 'siwf', fid: siwfData.fid })
+    if (siwfSuccess && siwfData?.fid) {
+      verifyWithConvex(siwfData.fid, siwfData.username ?? '', '')
     }
-  }, [siwfSuccess, siwfData, verifyWithApi])
+  }, [siwfSuccess, siwfData, verifyWithConvex])
 
   useEffect(() => {
     if (siwfIsError) {
@@ -239,13 +245,45 @@ const ProtocolDirectives = () => {
 
   const handleDiscord = async () => {
     if (IS_STUB) { setDiscordLinked(true); return }
-    if (!walletAddress) return
-    const discordUrl = `${API_BASE}/api/auth/discord?wallet=${walletAddress}`
-    setDiscordPending(true)
+    const discordInvite = 'https://discord.com/invite/r2-markets'
     try {
-      await sdk.actions.openUrl(discordUrl)
+      await sdk.actions.openUrl(discordInvite)
     } catch {
-      window.open(discordUrl, '_blank')
+      window.open(discordInvite, '_blank')
+    }
+    // Honor system — mark as joined immediately
+    setDiscordLinked(true)
+    if (walletAddress) {
+      updateDiscord({
+        wallet_address: walletAddress,
+        discord_id: 'joined',
+        discord_username: 'joined',
+      }).catch(() => {})
+    }
+  }
+
+  const handleTwitter = async () => {
+    if (IS_STUB) { setTwitterLinked(true); return }
+    try {
+      await sdk.actions.openUrl('https://x.com/r2markets')
+    } catch {
+      window.open('https://x.com/r2markets', '_blank')
+    }
+    setTimeout(async () => {
+      try {
+        await sdk.actions.openUrl('https://x.com/korewapandesu')
+      } catch {
+        window.open('https://x.com/korewapandesu', '_blank')
+      }
+    }, 800)
+    setTwitterLinked(true)
+    if (walletAddress) {
+      updateTwitter({
+        wallet_address: walletAddress,
+        twitter_id: 'joined',
+        twitter_username: 'joined',
+        twitter_following: true,
+      }).catch(() => {})
     }
   }
 
@@ -278,11 +316,10 @@ const ProtocolDirectives = () => {
       })
 
       if (hasVault) {
-        // Already has vault — just update status and go to profile
         await updateStatus({ wallet_address: walletAddress, status: 'queued' })
+        setHasOnChainVault(true)
         setQueueSlot(1)
         setDeployPhase('complete')
-        setTimeout(() => navigate('/profile'), 800)
         setInitLoading(false)
         return
       }
@@ -307,7 +344,6 @@ const ProtocolDirectives = () => {
       setDeployPhase('chain')
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
 
-      // Decode VaultCreated event
       let vaultId: string | null = null
       let agentId: string | null = null
       for (const log of receipt.logs) {
@@ -337,8 +373,8 @@ const ProtocolDirectives = () => {
         console.error('Agent spawn failed (non-blocking):', e)
       }
 
-      // Update Convex status
       await updateStatus({ wallet_address: walletAddress, status: 'queued' })
+      setHasOnChainVault(true)
       setQueueSlot(1)
       setDeployPhase('complete')
     } catch (e: any) {
@@ -360,7 +396,7 @@ const ProtocolDirectives = () => {
       <div className="absolute bottom-2 right-2 w-6 h-6 border-r-2 border-b-2 border-neon-cyan opacity-40" />
 
       <div className="flex min-h-screen">
-        <DirectiveSidebar completedCount={completedCount} totalCount={5} />
+        <DirectiveSidebar completedCount={completedCount} totalCount={4} />
 
         <div className="flex-1 flex flex-col min-h-screen overflow-y-auto">
 
@@ -370,7 +406,7 @@ const ProtocolDirectives = () => {
               <div className="flex flex-col gap-0.5">
                 <h1 className="font-display font-bold text-neon-pink text-sm tracking-wider">PROTOCOL.DIRECTIVES</h1>
                 <span className="font-mono text-[9px] tracking-wider text-muted-foreground uppercase">
-                  {completedCount} / 5 COMPLETE · AGENTS: {vaultCount?.toLocaleString() ?? '—'} / {maxVaults?.toLocaleString() ?? '—'}
+                  {completedCount} / 6 COMPLETE · AGENTS: {vaultCount?.toLocaleString() ?? '—'} / {maxVaults?.toLocaleString() ?? '—'}
                 </span>
               </div>
               <button
@@ -394,7 +430,10 @@ const ProtocolDirectives = () => {
               <StepDone num="03" label="BASE_CAMP" detail={discordUsername ?? undefined} />
             )}
             {step4Done && activeStep > 4 && (
-              <StepDone num="04" label="BROADCAST" />
+              <StepDone num="04" label="SIGNAL_BOOST" />
+            )}
+            {step5Done && activeStep > 5 && (
+              <StepDone num="05" label="INITIALIZE" detail={`#${agentNumber}`} />
             )}
           </div>
 
@@ -429,7 +468,7 @@ const ProtocolDirectives = () => {
                           <div className="flex gap-4">
                             <button
                               onClick={() => {
-                                try { sdk.actions.viewProfile({ fid: 2864342 }) }
+                                try { sdk.actions.openUrl('https://farcaster.xyz/r2markets') }
                                 catch { window.open('https://farcaster.xyz/r2markets', '_blank') }
                               }}
                               className="font-mono text-neon-cyan text-[9px] tracking-widest uppercase underline cursor-pointer hover:opacity-80"
@@ -498,27 +537,18 @@ const ProtocolDirectives = () => {
               >
                 <div className="flex flex-col gap-4 pt-1">
                   {!discordLinked ? (
-                    <div className="flex flex-col gap-3">
-                      <SocialAuthButton
-                        accentColor="indigo"
-                        label={discordPending ? "Waiting for Discord..." : "Join Discord"}
-                        sublabel={discordPending ? "Complete auth in your browser, then return here" : "Connect your Discord account to R2-Markets"}
-                        loading={discordPending}
-                        loadingLabel="Waiting for Discord..."
-                        onClick={discordPending ? undefined : handleDiscord}
-                        icon={<DiscordIcon />}
-                      />
-                      {discordPending && (
-                        <p className="font-mono text-[9px] tracking-widest text-muted-foreground/50 uppercase text-center">
-                          Return to Warpcast after authorising
-                        </p>
-                      )}
-                    </div>
+                    <SocialAuthButton
+                      accentColor="indigo"
+                      label="Join Discord"
+                      sublabel="Join the R2 Markets Discord server to continue"
+                      onClick={handleDiscord}
+                      icon={<DiscordIcon />}
+                    />
                   ) : (
                     <div className="flex items-center gap-2">
                       <DiscordIcon size={12} />
                       <span className="font-mono text-neon-green text-[10px] tracking-wider">
-                        {discordUsername ?? 'Discord'} verified
+                        Discord joined
                       </span>
                     </div>
                   )}
@@ -526,37 +556,38 @@ const ProtocolDirectives = () => {
               </DirectiveCard>
             )}
 
-            {/* [04] SHARE / BROADCAST */}
+            {/* [04] TWITTER / X */}
             {activeStep === 4 && (
               <DirectiveCard
                 number="04"
-                title="BROADCAST SIGNAL"
-                description="SHARE R2 MARKETS WITH YOUR NETWORK · AMPLIFY THE SIGNAL"
-                borderColor="cyan"
+                title="SIGNAL_BOOST"
+                description="FOLLOW @R2MARKETS & @KOREWAPANDESU ON X · AMPLIFY THE SIGNAL"
+                borderColor={step4Done ? "yellow" : "cyan"}
               >
                 <div className="flex flex-col gap-4 pt-1">
-                  {shared ? (
-                    <span className="font-mono text-neon-green text-[10px] tracking-wider font-bold">
-                      ✓ SIGNAL BROADCAST
-                    </span>
-                  ) : (
-                    <TerminalButton
-                      label="◈ CAST ABOUT R2"
-                      variant="pink"
-                      onClick={async () => {
-                        try {
-                          const result = await sdk.actions.composeCast({
-                            text: 'initializing my autonomous trading agent on @r2markets\n\nERC-8004 identity · on-chain vault · AI-powered trading\n\nthe agents are coming 👀',
-                            embeds: ['https://r2-market-app.vercel.app'],
-                          })
-                          if (result?.cast) setShared(true)
-                        } catch {
-                          // Fallback for non-Warpcast
-                          window.open('https://warpcast.com/~/compose?text=just+deployed+my+autonomous+trading+agent+on+%40r2markets&embeds[]=https://r2-market-app.vercel.app', '_blank')
-                          setShared(true)
+                  {!twitterLinked ? (
+                    <div className="flex flex-col gap-3">
+                      <SocialAuthButton
+                        accentColor="cyan"
+                        label="Follow on X"
+                        sublabel="Follow @r2markets and @korewapandesu to continue"
+                        onClick={handleTwitter}
+                        icon={
+                          <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.742l7.735-8.835L1.254 2.25H8.08l4.259 5.622 5.905-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                          </svg>
                         }
-                      }}
-                    />
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <svg width={12} height={12} viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.742l7.735-8.835L1.254 2.25H8.08l4.259 5.622 5.905-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                      </svg>
+                      <span className="font-mono text-neon-green text-[10px] tracking-wider">
+                        Following on X
+                      </span>
+                    </div>
                   )}
                 </div>
               </DirectiveCard>
@@ -573,7 +604,6 @@ const ProtocolDirectives = () => {
                 <div className="flex flex-col gap-4 pt-1">
                   {(hasOnChainVault && deployPhase === 'idle') || deployPhase === 'complete' ? (
                     <div className="flex flex-col gap-4">
-                      {/* Deploy success header */}
                       <div className="relative border border-neon-green/30 bg-neon-green/5 px-4 py-3">
                         <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-neon-green/60" />
                         <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-neon-green/60" />
@@ -588,39 +618,7 @@ const ProtocolDirectives = () => {
                           </span>
                         )}
                       </div>
-
-                      {/* Share deployment cast */}
-                      <button
-                        onClick={async () => {
-                          const vaultText = spawnedVaultId ? `vault #${spawnedVaultId}` : 'my vault'
-                          try {
-                            await sdk.actions.composeCast({
-                              text: `just deployed my autonomous trading agent on @r2markets\n\n${vaultText} is live on Base · ERC-8004 identity minted · AI agent spawned\n\nlet the agents in 🤖`,
-                              embeds: ['https://r2-market-app.vercel.app'],
-                            })
-                          } catch {
-                            window.open(`https://warpcast.com/~/compose?text=${encodeURIComponent(`just deployed my autonomous trading agent on @r2markets\n\n${vaultText} is live on Base · ERC-8004 identity minted · AI agent spawned\n\nlet the agents in 🤖`)}&embeds[]=${encodeURIComponent('https://r2.markets')}`, '_blank')
-                          }
-                        }}
-                        className="group relative w-full overflow-hidden border border-neon-pink/50 bg-neon-pink/10 hover:bg-neon-pink/20 px-4 py-3 transition-all duration-300"
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-r from-neon-pink/0 via-neon-pink/10 to-neon-pink/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
-                        <div className="flex items-center justify-center gap-2">
-                          <svg width="14" height="14" viewBox="0 0 1000 1000" fill="currentColor" className="text-neon-pink">
-                            <path d="M257.778 155.556H742.222V844.445H671.111V528.889H670.414C662.554 441.677 589.258 373.333 500 373.333C410.742 373.333 337.446 441.677 329.586 528.889H328.889V844.445H257.778V155.556Z"/>
-                            <path d="M128.889 253.333L157.778 351.111H182.222V746.667C169.949 746.667 160 756.616 160 768.889V795.556H155.556C143.283 795.556 133.333 805.505 133.333 817.778V844.445H382.222V817.778C382.222 805.505 372.273 795.556 360 795.556H355.556V768.889C355.556 756.616 345.606 746.667 333.333 746.667H306.667V253.333H128.889Z"/>
-                            <path d="M675.556 746.667C663.283 746.667 653.333 756.616 653.333 768.889V795.556H648.889C636.616 795.556 626.667 805.505 626.667 817.778V844.445H875.556V817.778C875.556 805.505 865.606 795.556 853.333 795.556H848.889V768.889C848.889 756.616 838.939 746.667 826.667 746.667V351.111H851.111L880 253.333H702.222V746.667H675.556Z"/>
-                          </svg>
-                          <span className="font-mono text-neon-pink text-[10px] tracking-[0.2em] font-bold uppercase">
-                            SHARE DEPLOYMENT
-                          </span>
-                        </div>
-                        <span className="block font-mono text-neon-pink/40 text-[7px] tracking-widest mt-1 text-center uppercase">
-                          cast your agent deployment to farcaster
-                        </span>
-                      </button>
-
-                      <TerminalButton label="VIEW PROFILE →" variant="outline" onClick={() => navigate('/profile')} />
+                      <TerminalButton label="CONTINUE →" variant="outline" onClick={() => setShareDone(false)} />
                     </div>
                   ) : deployPhase !== 'idle' ? (
                     <div className="flex flex-col gap-2">
@@ -652,12 +650,60 @@ const ProtocolDirectives = () => {
               </DirectiveCard>
             )}
 
+            {/* [06] SHARE */}
+            {activeStep === 6 && (
+              <DirectiveCard
+                number="06"
+                title="BROADCAST"
+                description="CAST YOUR AGENT STATUS · RECRUIT OPERATORS · EXPAND THE GRID"
+                borderColor={step6Done ? "yellow" : "pink"}
+              >
+                <div className="flex flex-col gap-4 pt-1">
+                  {!shareDone ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="border border-neon-pink/20 bg-neon-pink/5 px-3 py-3">
+                        <p className="font-mono text-[9px] text-muted-foreground/70 tracking-wider leading-relaxed">
+                          "I just claimed agent #{agentNumber} on the R2 Markets waitlist, join the agentic JPEGs market now {referralUrl}, {spotsLeft} spots left"
+                        </p>
+                      </div>
+                      <TerminalButton
+                        label="◈ CAST TO FARCASTER"
+                        variant="pink"
+                        onClick={async () => {
+                          const vaultText = spawnedVaultId ? `vault #${spawnedVaultId}` : `agent #${agentNumber}`
+                          const castText = `just deployed my autonomous trading agent on @r2markets\n\n${vaultText} is live on Base · ERC-8004 identity minted · AI agent spawned\n\nlet the agents in`
+                          try {
+                            await sdk.actions.composeCast({ text: castText, embeds: ['https://r2-market-app.vercel.app'] })
+                          } catch {
+                            navigator.clipboard.writeText(castText).catch(() => {})
+                          }
+                          setShareDone(true)
+                        }}
+                      />
+                      <button
+                        onClick={() => setShareDone(true)}
+                        className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground/40 hover:text-muted-foreground/60 uppercase transition-colors py-1"
+                      >
+                        Skip →
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      <span className="font-mono text-neon-green text-[10px] tracking-wider">✓ BROADCAST COMPLETE</span>
+                      <TerminalButton label="VIEW PROFILE" variant="outline" onClick={() => navigate('/profile')} />
+                    </div>
+                  )}
+                </div>
+              </DirectiveCard>
+            )}
+
           </div>
 
           {/* Footer */}
           <div className="px-7 pb-6 flex items-center justify-between text-[9px] text-muted-foreground tracking-wider">
             <span>© 2026 R2-SYSTEMS CORP</span>
             <span>AGENTS: {vaultCount?.toLocaleString() ?? '—'} / {maxVaults?.toLocaleString() ?? '—'}</span>
+
           </div>
         </div>
       </div>

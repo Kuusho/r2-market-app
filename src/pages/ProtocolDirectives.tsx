@@ -3,7 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useSignIn } from "@farcaster/auth-kit";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { useQuery, useMutation } from "convex/react";
+import { createPublicClient, http, decodeEventLog } from "viem";
+import { base } from "viem/chains";
 import { api } from "../../convex/_generated/api";
+import { getFarcasterWalletClient } from "@/lib/farcasterConnector";
+import { R2_VAULT_ADDRESS, R2VaultABI } from "@/lib/contracts";
 import DirectiveSidebar from "@/components/DirectiveSidebar";
 import DirectiveCard from "@/components/DirectiveCard";
 import TerminalButton from "@/components/TerminalButton";
@@ -61,7 +65,14 @@ const ProtocolDirectives = () => {
   const [referralAcknowledged, setReferralAcknowledged] = useState(false)
   const [queueSlot, setQueueSlot] = useState<number | null>(null)
   const [shareDone, setShareDone] = useState(false)
+  const [hasOnChainVault, setHasOnChainVault] = useState(false)
+  const [vaultCount, setVaultCount] = useState<number | null>(null)
+  const [maxVaults, setMaxVaults] = useState<number | null>(null)
   const [initLoading, setInitLoading] = useState(false)
+  const [deployPhase, setDeployPhase] = useState<'idle' | 'wallet' | 'signing' | 'chain' | 'spawn' | 'complete'>('idle')
+  const [deployError, setDeployError] = useState<string | null>(null)
+  const [spawnedVaultId, setSpawnedVaultId] = useState<string | null>(null)
+  const [spawnedAgentId, setSpawnedAgentId] = useState<string | null>(null)
   const [navOpen, setNavOpen] = useState(false)
 
   // Convex: reactive user query (auto-updates when Discord links, etc.)
@@ -87,15 +98,46 @@ const ProtocolDirectives = () => {
       setReferralAcknowledged(true)
     }
     if (convexUser.twitter_username) setTwitterLinked(true)
-    if (convexUser.status === 'queued') setQueueSlot(1)
   }, [convexUser])
+
+  // Read on-chain vault stats
+  useEffect(() => {
+    const readChain = async () => {
+      try {
+        const publicClient = createPublicClient({ chain: base, transport: http() })
+        const [nextId, max] = await Promise.all([
+          publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'nextVaultId' }),
+          publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'maxVaults' }),
+        ])
+        setVaultCount(Number(nextId))
+        setMaxVaults(Number(max))
+      } catch (e) { console.error('Chain read failed:', e) }
+    }
+    readChain()
+  }, [])
+
+  // Check on-chain vault ownership
+  useEffect(() => {
+    if (!walletAddress || walletAddress === '0xstub') return
+    const checkVault = async () => {
+      try {
+        const publicClient = createPublicClient({ chain: base, transport: http() })
+        const [hasVault] = await publicClient.readContract({
+          address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'getUserVault',
+          args: [walletAddress as `0x${string}`],
+        })
+        if (hasVault) { setHasOnChainVault(true); setQueueSlot(1) }
+      } catch (e) { console.error('Vault check failed:', e) }
+    }
+    checkVault()
+  }, [walletAddress])
 
   // Progressive step derivation
   const step1Done = farcasterLinked
   const step2Done = step1Done && referralAcknowledged
   const step3Done = discordLinked
   const step4Done = twitterLinked
-  const step5Done = !!queueSlot
+  const step5Done = hasOnChainVault
   const step6Done = shareDone
 
   const activeStep = !step1Done ? 1 : !step2Done ? 2 : !step3Done ? 3 : !step4Done ? 4 : !step5Done ? 5 : 6
@@ -239,12 +281,51 @@ const ProtocolDirectives = () => {
   const handleClaimSpot = async () => {
     if (!walletAddress || !waitlistComplete) return
     setInitLoading(true)
+    setDeployError(null)
     try {
+      setDeployPhase('wallet')
+      const walletClient = await getFarcasterWalletClient()
+      const [senderAddress] = await walletClient.getAddresses()
+      if (!senderAddress) throw new Error('No wallet address from Farcaster SDK')
+      const publicClient = createPublicClient({ chain: base, transport: http() })
+      const creationFee = await publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'creationFee' })
+      const [hasVault] = await publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'getUserVault', args: [senderAddress] })
+      if (hasVault) {
+        await updateStatus({ wallet_address: walletAddress, status: 'queued' })
+        setHasOnChainVault(true); setQueueSlot(1); setDeployPhase('complete'); setInitLoading(false); return
+      }
+      setDeployPhase('signing')
+      const txHash = await walletClient.writeContract({
+        address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'createVault',
+        args: ['0x0000000000000000000000000000000000000000' as `0x${string}`, BigInt(0), '0x' as `0x${string}`],
+        value: creationFee, chain: base, account: senderAddress,
+      })
+      setDeployPhase('chain')
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+      let vaultId: string | null = null; let agentId: string | null = null
+      for (const log of receipt.logs) {
+        try {
+          const decoded = decodeEventLog({ abi: R2VaultABI, data: log.data, topics: log.topics })
+          if (decoded.eventName === 'VaultCreated') {
+            vaultId = String((decoded.args as { vaultId: bigint }).vaultId)
+            agentId = String((decoded.args as { agentId: bigint }).agentId)
+            break
+          }
+        } catch { /* not our event */ }
+      }
+      if (vaultId) setSpawnedVaultId(vaultId)
+      if (agentId) setSpawnedAgentId(agentId)
+      setDeployPhase('spawn')
+      try {
+        await fetch(`${API_BASE}/api/agents`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId, sequentialId: Number(vaultId), name: `R2-ALPHA-${vaultId ?? '?'}` }) })
+      } catch (e) { console.error('Agent spawn failed (non-blocking):', e) }
       await updateStatus({ wallet_address: walletAddress, status: 'queued' })
-      setQueueSlot(1)
-      setTimeout(() => navigate('/profile'), 800)
-    } catch (e) {
-      console.error('claim spot:', e)
+      setHasOnChainVault(true); setQueueSlot(1); setDeployPhase('complete')
+    } catch (e: any) {
+      console.error('deploy error:', e)
+      setDeployError(e?.message?.slice(0, 80) || 'Transaction failed')
+      setDeployPhase('idle')
     }
     setInitLoading(false)
   }
@@ -270,7 +351,7 @@ const ProtocolDirectives = () => {
               <div className="flex flex-col gap-0.5">
                 <h1 className="font-display font-bold text-neon-pink text-sm tracking-wider">PROTOCOL.DIRECTIVES</h1>
                 <span className="font-mono text-[9px] tracking-wider text-muted-foreground uppercase">
-                  {completedCount} / 6 COMPLETE · SLOT #{agentNumber > 0 ? agentNumber : '—'}
+                  {completedCount} / 6 COMPLETE · AGENTS: {vaultCount?.toLocaleString() ?? '—'} / {maxVaults?.toLocaleString() ?? '—'}
                 </span>
               </div>
               <button
@@ -462,23 +543,51 @@ const ProtocolDirectives = () => {
               <DirectiveCard
                 number="05"
                 title="INITIALIZE AGENT"
-                description="DEPLOY ERC-8004 IDENTITY TOKEN · REGISTER TO BASE MAINNET"
+                description="DEPLOY ERC-8004 IDENTITY TOKEN · CREATE VAULT ON BASE · SPAWN AI AGENT"
                 borderColor={step5Done ? "yellow" : "muted"}
               >
                 <div className="flex flex-col gap-4 pt-1">
-                  {queueSlot ? (
-                    <div className="flex flex-col gap-3">
-                      <span className="font-mono text-neon-green text-[10px] tracking-wider font-bold">
-                        ✓ AGENT #{agentNumber} CONFIRMED
-                      </span>
-                      <TerminalButton label="VIEW PROFILE" variant="outline" onClick={() => navigate('/profile')} />
+                  {(hasOnChainVault && deployPhase === 'idle') || deployPhase === 'complete' ? (
+                    <div className="flex flex-col gap-4">
+                      <div className="relative border border-neon-green/30 bg-neon-green/5 px-4 py-3">
+                        <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-neon-green/60" />
+                        <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-neon-green/60" />
+                        <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-neon-green/60" />
+                        <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-neon-green/60" />
+                        <span className="font-mono text-neon-green text-[10px] tracking-wider font-bold">
+                          ✓ AGENT DEPLOYED {spawnedVaultId ? `— VAULT #${spawnedVaultId}` : ''}
+                        </span>
+                        {spawnedAgentId && (
+                          <span className="block font-mono text-neon-cyan/60 text-[8px] tracking-widest mt-1">
+                            AGENT #{spawnedAgentId} · BASE MAINNET · ERC-8004
+                          </span>
+                        )}
+                      </div>
+                      <TerminalButton label="CONTINUE →" variant="outline" onClick={() => setShareDone(false)} />
+                    </div>
+                  ) : deployPhase !== 'idle' ? (
+                    <div className="flex flex-col gap-2">
+                      <div className={`font-mono text-[9px] tracking-widest uppercase ${deployPhase === 'wallet' ? 'text-neon-cyan' : 'text-neon-green'}`}>
+                        {deployPhase === 'wallet' && '◈ CONNECTING WALLET...'}
+                        {deployPhase === 'signing' && '◈ AWAITING SIGNATURE — MINT ERC-8004 + CREATE VAULT'}
+                        {deployPhase === 'chain' && '◈ CONFIRMING ON-CHAIN...'}
+                        {deployPhase === 'spawn' && '◈ SPAWNING AI AGENT...'}
+                      </div>
                     </div>
                   ) : (
-                    <TerminalButton
-                      label={initLoading ? "REGISTERING..." : "◈ INITIALIZE AGENT"}
-                      variant="pink"
-                      onClick={handleClaimSpot}
-                    />
+                    <div className="flex flex-col gap-3">
+                      <TerminalButton
+                        label={initLoading ? "DEPLOYING..." : "◈ CREATE AGENT VAULT"}
+                        variant="pink"
+                        onClick={handleClaimSpot}
+                      />
+                      <span className="font-mono text-muted-foreground/40 text-[8px] tracking-widest uppercase text-center">
+                        FEE: 0.0005 ETH · BASE MAINNET
+                      </span>
+                      {deployError && (
+                        <span className="font-mono text-neon-pink text-[9px] tracking-widest uppercase">⚠ {deployError}</span>
+                      )}
+                    </div>
                   )}
                 </div>
               </DirectiveCard>
@@ -504,9 +613,10 @@ const ProtocolDirectives = () => {
                         label="◈ CAST TO FARCASTER"
                         variant="pink"
                         onClick={async () => {
-                          const castText = `I just claimed agent #${agentNumber} on the R2 Markets waitlist, join the agentic JPEGs market now ${referralUrl}, ${spotsLeft} spots left`
+                          const vaultText = spawnedVaultId ? `vault #${spawnedVaultId}` : `agent #${agentNumber}`
+                          const castText = `just deployed my autonomous trading agent on @r2markets\n\n${vaultText} is live on Base · ERC-8004 identity minted · AI agent spawned\n\nlet the agents in`
                           try {
-                            await sdk.actions.composeCast({ text: castText, embeds: [referralUrl ?? ''] })
+                            await sdk.actions.composeCast({ text: castText, embeds: ['https://r2-market-app.vercel.app'] })
                           } catch {
                             navigator.clipboard.writeText(castText).catch(() => {})
                           }
@@ -535,7 +645,7 @@ const ProtocolDirectives = () => {
           {/* Footer */}
           <div className="px-7 pb-6 flex items-center justify-between text-[9px] text-muted-foreground tracking-wider">
             <span>© 2026 R2-SYSTEMS CORP</span>
-            <span>AGENT #{agentNumber > 0 ? agentNumber : '—'} / 500</span>
+            <span>AGENTS: {vaultCount?.toLocaleString() ?? '—'} / {maxVaults?.toLocaleString() ?? '—'}</span>
 
           </div>
         </div>

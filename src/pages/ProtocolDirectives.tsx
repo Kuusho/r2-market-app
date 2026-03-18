@@ -293,26 +293,18 @@ const ProtocolDirectives = () => {
     setDeployError(null)
 
     try {
-      // Phase 1: Connect wallet via Farcaster SDK
       setDeployPhase('wallet')
       const walletClient = await getFarcasterWalletClient()
       const [senderAddress] = await walletClient.getAddresses()
       if (!senderAddress) throw new Error('No wallet address from Farcaster SDK')
 
-      // Read creation fee from contract
       const publicClient = createPublicClient({ chain: base, transport: http() })
       const creationFee = await publicClient.readContract({
-        address: R2_VAULT_ADDRESS,
-        abi: R2VaultABI,
-        functionName: 'creationFee',
+        address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'creationFee',
       })
 
-      // Check if user already has a vault
       const [hasVault] = await publicClient.readContract({
-        address: R2_VAULT_ADDRESS,
-        abi: R2VaultABI,
-        functionName: 'getUserVault',
-        args: [senderAddress],
+        address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'getUserVault', args: [senderAddress],
       })
 
       if (hasVault) {
@@ -324,23 +316,13 @@ const ProtocolDirectives = () => {
         return
       }
 
-      // Phase 2: Send createVault transaction
       setDeployPhase('signing')
       const txHash = await walletClient.writeContract({
-        address: R2_VAULT_ADDRESS,
-        abi: R2VaultABI,
-        functionName: 'createVault',
-        args: [
-          '0x0000000000000000000000000000000000000000' as `0x${string}`,
-          BigInt(0),
-          '0x' as `0x${string}`,
-        ],
-        value: creationFee,
-        chain: base,
-        account: senderAddress,
+        address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'createVault',
+        args: ['0x0000000000000000000000000000000000000000' as `0x${string}`, BigInt(0), '0x' as `0x${string}`],
+        value: creationFee, chain: base, account: senderAddress,
       })
 
-      // Phase 3: Wait for confirmation
       setDeployPhase('chain')
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
 
@@ -360,18 +342,13 @@ const ProtocolDirectives = () => {
       if (vaultId) setSpawnedVaultId(vaultId)
       if (agentId) setSpawnedAgentId(agentId)
 
-      // Phase 4: Spawn agent
       setDeployPhase('spawn')
-      const name = `R2-ALPHA-${vaultId ?? '?'}`
       try {
         await fetch(`${API_BASE}/api/agents`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId, sequentialId: Number(vaultId), name }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId, sequentialId: Number(vaultId), name: `R2-ALPHA-${vaultId ?? '?'}` }),
         })
-      } catch (e) {
-        console.error('Agent spawn failed (non-blocking):', e)
-      }
+      } catch (e) { console.error('Agent spawn failed (non-blocking):', e) }
 
       await updateStatus({ wallet_address: walletAddress, status: 'queued' })
       setHasOnChainVault(true)

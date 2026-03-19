@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { sdk } from "@farcaster/miniapp-sdk";
 import { useAccount, useConnect } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useQuery, useMutation } from "convex/react";
@@ -19,12 +20,28 @@ const ARCHETYPES = [
 type Archetype = typeof ARCHETYPES[number]['key']
 
 const AgentProfile = () => {
-  const { address, isConnected } = useAccount()
+  const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount()
   const { connect } = useConnect()
+  const [fcAddress, setFcAddress] = useState<string | null>(null)
   const [handle, setHandle] = useState('')
   const [archetype, setArchetype] = useState<Archetype | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Try Farcaster wallet on mount
+  useEffect(() => {
+    sdk.wallet.ethProvider
+      .request({ method: 'eth_requestAccounts' })
+      .then((accounts) => {
+        const addr = (accounts as string[])[0]
+        if (addr) setFcAddress(addr)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Farcaster wallet takes priority, fallback to wagmi
+  const address = fcAddress ?? wagmiAddress
+  const isConnected = !!address
 
   // Convex reactive query
   const user = useQuery(
@@ -89,7 +106,14 @@ const AgentProfile = () => {
           <span className="text-neon-pink text-[10px] tracking-wider font-mono-r2">
             ⚠ NO CONTROLLER LINKED — WALLET REQUIRED TO LOAD CREDENTIALS
           </span>
-          <TerminalButton label="CONNECT_WALLET" variant="pink" onClick={() => connect({ connector: injected() })} />
+          <TerminalButton label="CONNECT_WALLET" variant="pink" onClick={async () => {
+            try {
+              const accounts = await sdk.wallet.ethProvider.request({ method: 'eth_requestAccounts' })
+              const addr = (accounts as string[])[0]
+              if (addr) { setFcAddress(addr); return }
+            } catch {}
+            connect({ connector: injected() })
+          }} />
         </div>
       )}
 

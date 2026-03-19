@@ -13,7 +13,6 @@ import DirectiveCard from "@/components/DirectiveCard";
 import TerminalButton from "@/components/TerminalButton";
 import SocialAuthButton from "@/components/SocialAuthButton";
 import FlowNav from "@/components/FlowNav"
-import { generateReferralCode } from "@/lib/referral";
 
 const IS_STUB = import.meta.env.VITE_AUTH_STUB === 'true'
 const CONVEX_SITE_URL = 'https://brainy-panther-780.eu-west-1.convex.site'
@@ -52,17 +51,17 @@ const ProtocolDirectives = () => {
   const [farcasterLinked, setFarcasterLinked] = useState(false)
   const [farcasterUsername, setFarcasterUsername] = useState<string | null>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
-  const [farcasterError, setFarcasterError] = useState<'error' | 'unverified' | null>(null)
+  const [farcasterError, setFarcasterError] = useState<'error' | 'unverified' | 'lowScore' | null>(null)
   const [farcasterLoading, setFarcasterLoading] = useState(false)
 
   // Desktop SIWF fallback
   const { signIn, isSuccess: siwfSuccess, isError: siwfIsError, data: siwfData } = useSignIn()
 
   // Downstream state
+  const [preShareDone, setPreShareDone] = useState(false)
   const [discordLinked, setDiscordLinked] = useState(false)
   const [discordUsername, setDiscordUsername] = useState<string | null>(null)
   const [twitterLinked, setTwitterLinked] = useState(false)
-  const [referralAcknowledged, setReferralAcknowledged] = useState(false)
   const [queueSlot, setQueueSlot] = useState<number | null>(null)
   const [shareDone, setShareDone] = useState(false)
   const [hasOnChainVault, setHasOnChainVault] = useState(false)
@@ -95,7 +94,6 @@ const ProtocolDirectives = () => {
     if (convexUser.discord_username) {
       setDiscordLinked(true)
       setDiscordUsername(convexUser.discord_username)
-      setReferralAcknowledged(true)
     }
     if (convexUser.twitter_username) setTwitterLinked(true)
   }, [convexUser])
@@ -134,7 +132,7 @@ const ProtocolDirectives = () => {
 
   // Progressive step derivation
   const step1Done = farcasterLinked
-  const step2Done = step1Done && referralAcknowledged
+  const step2Done = preShareDone
   const step3Done = discordLinked
   const step4Done = twitterLinked
   const step5Done = hasOnChainVault
@@ -145,16 +143,13 @@ const ProtocolDirectives = () => {
 
   const completedCount =
     (step1Done ? 1 : 0) +
+    (step2Done ? 1 : 0) +
     (step3Done ? 1 : 0) +
     (step4Done ? 1 : 0) +
     (step5Done ? 1 : 0) +
     (step6Done ? 1 : 0)
 
   const agentNumber = queueSlot ?? queuedCount
-  const spotsLeft = Math.max(0, 500 - agentNumber)
-
-  const referralCode = walletAddress ? generateReferralCode(walletAddress) : null
-  const referralUrl = referralCode ? `https://r2.markets/ref/${referralCode}` : null
 
   // On mount: try to detect Farcaster context
   useEffect(() => {
@@ -179,6 +174,9 @@ const ProtocolDirectives = () => {
       if (result.ok) {
         setFarcasterLinked(true)
         setFarcasterUsername(username)
+        setWalletAddress(walletAddr)
+      } else if (result.lowScore) {
+        setFarcasterError('lowScore')
         setWalletAddress(walletAddr)
       } else if (result.unverified) {
         setFarcasterError('unverified')
@@ -341,7 +339,7 @@ const ProtocolDirectives = () => {
       <div className="absolute bottom-2 right-2 w-6 h-6 border-r-2 border-b-2 border-neon-cyan opacity-40" />
 
       <div className="flex min-h-screen">
-        <DirectiveSidebar completedCount={completedCount} totalCount={4} />
+        <DirectiveSidebar completedCount={completedCount} totalCount={6} />
 
         <div className="flex-1 flex flex-col min-h-screen overflow-y-auto">
 
@@ -369,7 +367,7 @@ const ProtocolDirectives = () => {
               </div>
             )}
             {step2Done && activeStep > 2 && (
-              <StepDone num="02" label="RECRUITMENT" />
+              <StepDone num="02" label="SIGNAL_BROADCAST" />
             )}
             {step3Done && activeStep > 3 && (
               <StepDone num="03" label="BASE_CAMP" detail={discordUsername ?? undefined} />
@@ -378,7 +376,7 @@ const ProtocolDirectives = () => {
               <StepDone num="04" label="SIGNAL_BOOST" />
             )}
             {step5Done && activeStep > 5 && (
-              <StepDone num="05" label="INITIALIZE" detail={`#${agentNumber}`} />
+              <StepDone num="05" label="AGENT_DEPLOYED" detail={`#${agentNumber}`} />
             )}
           </div>
 
@@ -405,6 +403,16 @@ const ProtocolDirectives = () => {
                         onClick={handleFarcasterClick}
                         icon={<FarcasterIcon />}
                       />
+                      {farcasterError === 'lowScore' && (
+                        <div className="border border-neon-pink/40 bg-neon-pink/5 px-3 py-3 space-y-2">
+                          <p className="font-mono text-neon-pink text-[9px] tracking-widest uppercase">
+                            ⚠ Neynar score too low — minimum 0.5 required
+                          </p>
+                          <p className="font-mono text-muted-foreground/50 text-[8px] tracking-wider">
+                            Build your Farcaster reputation and try again
+                          </p>
+                        </div>
+                      )}
                       {farcasterError === 'unverified' && (
                         <div className="border border-neon-yellow/40 bg-neon-yellow/5 px-3 py-3 space-y-2">
                           <p className="font-mono text-neon-yellow text-[9px] tracking-widest uppercase">
@@ -442,32 +450,41 @@ const ProtocolDirectives = () => {
               </DirectiveCard>
             )}
 
-            {/* [02] REFERRAL */}
+            {/* [02] SHARE — pre-init hype cast */}
             {activeStep === 2 && (
               <DirectiveCard
                 number="02"
-                title="RECRUITMENT PROTOCOL"
-                description="DISTRIBUTE YOUR AGENT LINK · RECRUIT OPERATORS · EARN COMMISSION"
+                title="SIGNAL_BROADCAST"
+                description="ANNOUNCE YOUR AGENT INITIALIZATION TO THE NETWORK"
                 borderColor="pink"
               >
                 <div className="flex flex-col gap-4 pt-1">
-                  <div className="space-y-1">
-                    <p className="font-mono text-muted-foreground/50 text-[8px] tracking-[0.15em] uppercase">Your recruit link</p>
-                    <p className="font-mono text-neon-yellow text-[10px] tracking-wider break-all">{referralUrl}</p>
-                  </div>
-                  <TerminalButton
-                    label="COPY_LINK"
-                    variant="outline"
-                    onClick={() => referralUrl && navigator.clipboard.writeText(referralUrl)}
-                  />
-                  <div className="pt-2 border-t border-muted-foreground/10">
-                    <button
-                      onClick={() => setReferralAcknowledged(true)}
-                      className="w-full font-mono text-[9px] tracking-[0.2em] text-neon-cyan/60 hover:text-neon-cyan uppercase transition-colors py-2"
-                    >
-                      CONTINUE TO DISCORD →
-                    </button>
-                  </div>
+                  {!preShareDone ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="border border-neon-pink/20 bg-neon-pink/5 px-3 py-3">
+                        <p className="font-mono text-[9px] text-muted-foreground/70 tracking-wider leading-relaxed">
+                          "I'm initializing my autonomous trading agent on @r2markets — ERC-8004 on Base. Get yours before slots run out"
+                        </p>
+                      </div>
+                      <TerminalButton
+                        label="◈ CAST TO FARCASTER"
+                        variant="pink"
+                        onClick={async () => {
+                          const castText = `I'm initializing my autonomous trading agent on @r2markets\n\nERC-8004 identity · Base Network · AI-powered\n\nGet yours before slots run out`
+                          try {
+                            await sdk.actions.composeCast({ text: castText, embeds: ['https://r2-market-app.vercel.app'] })
+                          } catch {
+                            navigator.clipboard.writeText(castText).catch(() => {})
+                          }
+                          setPreShareDone(true)
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <span className="font-mono text-neon-green text-[10px] tracking-wider">
+                      ✓ Signal broadcast complete
+                    </span>
+                  )}
                 </div>
               </DirectiveCard>
             )}
@@ -593,28 +610,37 @@ const ProtocolDirectives = () => {
               </DirectiveCard>
             )}
 
-            {/* [06] SHARE */}
+            {/* [06] CONGRATS SHARE */}
             {activeStep === 6 && (
               <DirectiveCard
                 number="06"
-                title="BROADCAST"
-                description="CAST YOUR AGENT STATUS · RECRUIT OPERATORS · EXPAND THE GRID"
+                title="BROADCAST_DEPLOY"
+                description="SHARE YOUR AGENT DEPLOYMENT · LET THE NETWORK KNOW"
                 borderColor={step6Done ? "yellow" : "pink"}
               >
                 <div className="flex flex-col gap-4 pt-1">
                   {!shareDone ? (
                     <div className="flex flex-col gap-3">
-                      <div className="border border-neon-pink/20 bg-neon-pink/5 px-3 py-3">
-                        <p className="font-mono text-[9px] text-muted-foreground/70 tracking-wider leading-relaxed">
-                          "I just claimed agent #{agentNumber} on the R2 Markets waitlist, join the agentic JPEGs market now {referralUrl}, {spotsLeft} spots left"
-                        </p>
+                      <div className="relative border border-neon-green/30 bg-neon-green/5 px-4 py-3">
+                        <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-neon-green/60" />
+                        <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-neon-green/60" />
+                        <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-neon-green/60" />
+                        <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-neon-green/60" />
+                        <span className="font-mono text-neon-green text-[10px] tracking-wider font-bold">
+                          ✓ AGENT DEPLOYED {spawnedVaultId ? `— VAULT #${spawnedVaultId}` : ''}
+                        </span>
+                        {spawnedAgentId && (
+                          <span className="block font-mono text-neon-cyan/60 text-[8px] tracking-widest mt-1">
+                            AGENT #{spawnedAgentId} · BASE MAINNET · ERC-8004
+                          </span>
+                        )}
                       </div>
                       <TerminalButton
-                        label="◈ CAST TO FARCASTER"
+                        label="◈ SHARE THE NEWS"
                         variant="pink"
                         onClick={async () => {
                           const vaultText = spawnedVaultId ? `vault #${spawnedVaultId}` : `agent #${agentNumber}`
-                          const castText = `just deployed my autonomous trading agent on @r2markets\n\n${vaultText} is live on Base · ERC-8004 identity minted · AI agent spawned\n\nlet the agents in`
+                          const castText = `just deployed my autonomous trading agent on @r2markets\n\n${vaultText} is live on Base · ERC-8004 identity minted · AI agent spawned\n\nthe agents are coming`
                           try {
                             await sdk.actions.composeCast({ text: castText, embeds: ['https://r2-market-app.vercel.app'] })
                           } catch {
@@ -632,7 +658,7 @@ const ProtocolDirectives = () => {
                     </div>
                   ) : (
                     <div className="flex flex-col gap-3">
-                      <span className="font-mono text-neon-green text-[10px] tracking-wider">✓ BROADCAST COMPLETE</span>
+                      <span className="font-mono text-neon-green text-[10px] tracking-wider">✓ ALL DIRECTIVES COMPLETE</span>
                       <TerminalButton label="VIEW PROFILE" variant="outline" onClick={() => navigate('/profile')} />
                     </div>
                   )}

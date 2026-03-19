@@ -5,7 +5,7 @@
     "signature": "qKt4VLvD6KbUrwis5DjW7bi+zVuP5eqSkNj8AqvLmwxDvh9BaqLEEwiCJ896l4/9JJAlBx2zqqvmwojbmd1NtRw="
   },
   "frame": {
-    "version": "1",
+    "version": "next",
     "name": "R2 Markets Waitlist",
     "iconUrl": "https://r2-market-app.vercel.app/assets/smiling.png",
     "homeUrl": "https://r2-market-app.vercel.app",

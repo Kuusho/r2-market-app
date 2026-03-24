@@ -7,7 +7,7 @@ import { createPublicClient, http, decodeEventLog } from "viem";
 import { base } from "viem/chains";
 import { api } from "../../convex/_generated/api";
 import { getFarcasterWalletClient } from "@/lib/farcasterConnector";
-import { R2_VAULT_ADDRESS, R2VaultABI } from "@/lib/contracts";
+import { R2_VAULT_ADDRESS, R2_VAULT_V2_ADDRESS, R2VaultABI } from "@/lib/contracts";
 import DirectiveSidebar from "@/components/DirectiveSidebar";
 import DirectiveCard from "@/components/DirectiveCard";
 import TerminalButton from "@/components/TerminalButton";
@@ -58,6 +58,10 @@ const ProtocolDirectives = () => {
   const { signIn, isSuccess: siwfSuccess, isError: siwfIsError, data: siwfData } = useSignIn()
 
   // Downstream state
+  const [castLiked, setCastLiked] = useState(false)
+  const [castRecasted, setCastRecasted] = useState(false)
+  const [engagementLoading, setEngagementLoading] = useState(false)
+  const [fid, setFid] = useState<number | null>(null)
   const [preShareDone, setPreShareDone] = useState(false)
   const [discordLinked, setDiscordLinked] = useState(false)
   const [discordUsername, setDiscordUsername] = useState<string | null>(null)
@@ -98,33 +102,38 @@ const ProtocolDirectives = () => {
     if (convexUser.twitter_username) setTwitterLinked(true)
   }, [convexUser])
 
-  // Read on-chain vault stats
+  // Read on-chain vault stats — V1 + V2 combined
   useEffect(() => {
     const readChain = async () => {
       try {
         const publicClient = createPublicClient({ chain: base, transport: http() })
-        const [nextId, max] = await Promise.all([
+        const [v1NextId, v2NextId, v2Max] = await Promise.all([
           publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'nextVaultId' }),
-          publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'maxVaults' }),
+          publicClient.readContract({ address: R2_VAULT_V2_ADDRESS, abi: R2VaultABI, functionName: 'nextVaultId' }),
+          publicClient.readContract({ address: R2_VAULT_V2_ADDRESS, abi: R2VaultABI, functionName: 'maxVaults' }),
         ])
-        setVaultCount(Number(nextId))
-        setMaxVaults(Number(max))
+        setVaultCount(Number(v1NextId) + Number(v2NextId))
+        setMaxVaults(Number(v1NextId) + Number(v2Max))
       } catch (e) { console.error('Chain read failed:', e) }
     }
     readChain()
   }, [])
 
-  // Check on-chain vault ownership
+  // Check on-chain vault ownership — V1 or V2
   useEffect(() => {
     if (!walletAddress || walletAddress === '0xstub') return
     const checkVault = async () => {
       try {
         const publicClient = createPublicClient({ chain: base, transport: http() })
-        const [hasVault] = await publicClient.readContract({
+        const [hasV1] = await publicClient.readContract({
           address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'getUserVault',
           args: [walletAddress as `0x${string}`],
         })
-        if (hasVault) { setHasOnChainVault(true); setQueueSlot(1) }
+        const [hasV2] = await publicClient.readContract({
+          address: R2_VAULT_V2_ADDRESS, abi: R2VaultABI, functionName: 'getUserVault',
+          args: [walletAddress as `0x${string}`],
+        })
+        if (hasV1 || hasV2) { setHasOnChainVault(true); setQueueSlot(1) }
       } catch (e) { console.error('Vault check failed:', e) }
     }
     checkVault()
@@ -156,6 +165,7 @@ const ProtocolDirectives = () => {
     sdk.context.then(ctx => {
       if (ctx?.user?.fid) {
         console.log('Farcaster context detected, FID:', ctx.user.fid)
+        setFid(ctx.user.fid)
       }
     }).catch(() => {})
   }, [])
@@ -175,6 +185,7 @@ const ProtocolDirectives = () => {
         setFarcasterLinked(true)
         setFarcasterUsername(username)
         setWalletAddress(walletAddr)
+        setFid(fid)
       } else if (result.lowScore) {
         setFarcasterError('lowScore')
         setWalletAddress(walletAddr)
@@ -286,15 +297,17 @@ const ProtocolDirectives = () => {
       const [senderAddress] = await walletClient.getAddresses()
       if (!senderAddress) throw new Error('No wallet address from Farcaster SDK')
       const publicClient = createPublicClient({ chain: base, transport: http() })
-      const creationFee = await publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'creationFee' })
-      const [hasVault] = await publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'getUserVault', args: [senderAddress] })
-      if (hasVault) {
+      const creationFee = await publicClient.readContract({ address: R2_VAULT_V2_ADDRESS, abi: R2VaultABI, functionName: 'creationFee' })
+      // Check both V1 and V2
+      const [hasV1] = await publicClient.readContract({ address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'getUserVault', args: [senderAddress] })
+      const [hasV2] = await publicClient.readContract({ address: R2_VAULT_V2_ADDRESS, abi: R2VaultABI, functionName: 'getUserVault', args: [senderAddress] })
+      if (hasV1 || hasV2) {
         await updateStatus({ wallet_address: walletAddress, status: 'queued' })
         setHasOnChainVault(true); setQueueSlot(1); setDeployPhase('complete'); setInitLoading(false); return
       }
       setDeployPhase('signing')
       const txHash = await walletClient.writeContract({
-        address: R2_VAULT_ADDRESS, abi: R2VaultABI, functionName: 'createVault',
+        address: R2_VAULT_V2_ADDRESS, abi: R2VaultABI, functionName: 'createVault',
         args: ['0x0000000000000000000000000000000000000000' as `0x${string}`, BigInt(0), '0x' as `0x${string}`],
         value: creationFee, chain: base, account: senderAddress,
       })
@@ -461,24 +474,80 @@ const ProtocolDirectives = () => {
                 <div className="flex flex-col gap-4 pt-1">
                   {!preShareDone ? (
                     <div className="flex flex-col gap-3">
-                      <div className="border border-neon-pink/20 bg-neon-pink/5 px-3 py-3">
-                        <p className="font-mono text-[9px] text-muted-foreground/70 tracking-wider leading-relaxed">
-                          "I'm initializing my autonomous trading agent on @r2markets — ERC-8004 on Base. Get yours before slots run out"
-                        </p>
-                      </div>
-                      <TerminalButton
-                        label="◈ CAST TO FARCASTER"
-                        variant="pink"
-                        onClick={async () => {
-                          const castText = `I'm initializing my autonomous trading agent on @r2markets\n\nERC-8004 identity · Base Network · AI-powered\n\nGet yours before slots run out`
-                          try {
-                            await sdk.actions.composeCast({ text: castText, embeds: ['https://r2-market-app.vercel.app'] })
-                          } catch {
-                            navigator.clipboard.writeText(castText).catch(() => {})
-                          }
-                          setPreShareDone(true)
-                        }}
-                      />
+                      {/* Step 2a: Like + Recast the announcement */}
+                      {!castLiked || !castRecasted ? (
+                        <>
+                          <div className="border border-neon-pink/20 bg-neon-pink/5 px-3 py-3">
+                            <p className="font-mono text-[9px] text-muted-foreground/70 tracking-wider leading-relaxed">
+                              LIKE + RECAST THE WAVE 2 ANNOUNCEMENT TO PROCEED
+                            </p>
+                          </div>
+                          <TerminalButton
+                            label="◈ OPEN ANNOUNCEMENT CAST"
+                            variant="pink"
+                            onClick={async () => {
+                              try {
+                                await sdk.actions.openUrl('https://farcaster.xyz/r2markets/0x23bafde6')
+                              } catch {
+                                window.open('https://farcaster.xyz/r2markets/0x23bafde6', '_blank')
+                              }
+                            }}
+                          />
+                          <TerminalButton
+                            label={engagementLoading ? "◈ CHECKING..." : "◈ VERIFY LIKE + RECAST"}
+                            variant="cyan"
+                            onClick={async () => {
+                              if (!fid) return
+                              setEngagementLoading(true)
+                              try {
+                                const res = await fetch('https://r2.markets/api/cast-engagement', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ fid, castUrl: 'https://farcaster.xyz/r2markets/0x23bafde6' }),
+                                })
+                                const data = await res.json()
+                                if (data.liked) setCastLiked(true)
+                                if (data.recasted) setCastRecasted(true)
+                              } catch (e) { console.error('Engagement check failed:', e) }
+                              setEngagementLoading(false)
+                            }}
+                          />
+                          <div className="flex gap-3">
+                            <span className={`font-mono text-[9px] tracking-wider ${castLiked ? 'text-neon-green' : 'text-muted-foreground/40'}`}>
+                              {castLiked ? '✓ LIKED' : '○ LIKE'}
+                            </span>
+                            <span className={`font-mono text-[9px] tracking-wider ${castRecasted ? 'text-neon-green' : 'text-muted-foreground/40'}`}>
+                              {castRecasted ? '✓ RECASTED' : '○ RECAST'}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Step 2b: Compose own cast */}
+                          <div className="flex gap-3 mb-1">
+                            <span className="font-mono text-neon-green text-[9px] tracking-wider">✓ LIKED</span>
+                            <span className="font-mono text-neon-green text-[9px] tracking-wider">✓ RECASTED</span>
+                          </div>
+                          <div className="border border-neon-pink/20 bg-neon-pink/5 px-3 py-3">
+                            <p className="font-mono text-[9px] text-muted-foreground/70 tracking-wider leading-relaxed">
+                              "I'm initializing my autonomous trading agent on @r2markets — ERC-8004 on Base. Get yours before slots run out"
+                            </p>
+                          </div>
+                          <TerminalButton
+                            label="◈ CAST TO FARCASTER"
+                            variant="pink"
+                            onClick={async () => {
+                              const castText = `I'm initializing my autonomous trading agent on @r2markets\n\nERC-8004 identity · Base Network · AI-powered\n\nGet yours before slots run out`
+                              try {
+                                await sdk.actions.composeCast({ text: castText, embeds: ['https://r2-market-app.vercel.app'] })
+                              } catch {
+                                navigator.clipboard.writeText(castText).catch(() => {})
+                              }
+                              setPreShareDone(true)
+                            }}
+                          />
+                        </>
+                      )}
                     </div>
                   ) : (
                     <span className="font-mono text-neon-green text-[10px] tracking-wider">

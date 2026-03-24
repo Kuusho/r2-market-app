@@ -1,6 +1,7 @@
 import { type Address } from 'viem'
 
 export const R2_VAULT_ADDRESS = '0xCc615F59EEadb99253379f257c2Ada42ffC38062' as Address
+export const R2_VAULT_V2_ADDRESS = '0xC605637FB651c131AA31D4Be7cCC415edE172f4c' as Address
 
 export const R2VaultABI = [
   {
